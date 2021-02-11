@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import xlsxwriter
 import math
+from helpers import portfolio_input, chunks
 
 # Retrieve stocks
 stocks = pd.read_csv('sp_500_stocks.csv')
@@ -17,12 +18,6 @@ from secrets import IEX_CLOUD_API_TOKEN
 # Create a Pandas DataFrame to store the stock data
 columns = [ 'Ticker', 'Stock Price', 'Market Capitalization', 'Number of Shares to Buy' ]
 final_dataframe = pd.DataFrame(columns = columns)
-
-# Method to handle the chunking
-def chunks(lst, n):
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
 
 # Split up 500 stocks into groups of 100
 symbol_groups = list(chunks(stocks['Ticker'], 100))
@@ -58,17 +53,10 @@ print(final_dataframe)
 ########################################################################
 
 # Retrieve the user's portfolio value ($$$)
-portfolio_size = input('Enter the value of your portfolio: ')
-try:
-    val = float(portfolio_size)
-    print(val)
-except ValueError:
-    print('Value must be a number.\n')
-    portfolio_size = input('Enter the value of your portfolio: ')
-    val = float(portfolio_size)
+portfolio_size = portfolio_input
 
 # Calculate the position size required for each stock
-position_size = val / len(final_dataframe.index)
+position_size = float(portfolio_size) / len(final_dataframe.index)
 
 # Calculate the number of shares to buy based on the stock price
 # and store it in the DataFrame
@@ -87,7 +75,7 @@ final_dataframe.to_excel(writer, 'Recommended Trades', index=False)
 background_color = '#0a0a23'
 font_color = '#ffffff'
 
-# Create 
+# Create formats
 string_format = writer.book.add_format(
     {
         'font_color': font_color,

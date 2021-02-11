@@ -4,4 +4,6 @@ sp_500_stocks.csv
 __pycache__
 **/recommended_trades.xlsx
 **/momentum_strategy.xlsx
+**/value_strategy.xlsx
 env/
+.vscode
