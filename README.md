@@ -2,11 +2,13 @@
 
 This repository
 
+## API Token
+Download the Sandbox token from [here](http://nickmccullum.com/algorithmic-trading-python/secrets.py)
+## Fake Stock Data
+Uses static list of top 500 stocks: [Download CSV](https://drive.google.com/file/d/1ZJSpbY69DVckVZlO9cC6KkgfSufybcHN/view?usp=sharing)
 ## Repository Outline
-
 * Equal-Weight S&P 500 Index Fund
   * Source: `equal_weight_S&P_500.py`
-  * Uses static list of top 500 stocks: [Download CSV](https://drive.google.com/file/d/1ZJSpbY69DVckVZlO9cC6KkgfSufybcHN/view?usp=sharing)
   * Pulls data from IEX's Free Sandbox API: `https://sandbox.iexapis.com`
   * Inputs client's portfolio value
   * Calculates Weights
