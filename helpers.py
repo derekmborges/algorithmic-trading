@@ -1,3 +1,4 @@
+from dateutil.parser import parse
 
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -16,3 +17,7 @@ def portfolio_input():
         portfolio_size = input('Enter the value of your portfolio: ')
         float(portfolio_size)
         return portfolio_size
+
+def is_market_open(datetime_string):
+    dt = parse(str(datetime_string))
+    return dt.time().hour >= 9 and dt.time().minute >= 30 and dt.time().hour < 16

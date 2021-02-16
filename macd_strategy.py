@@ -5,6 +5,7 @@ import pandas as pd
 from pandas.plotting import register_matplotlib_converters
 import numpy as np
 from helpers import chunks
+from indicators.macd_indicator import macd_check
 import matplotlib.pyplot as plot
 plot.style.use('fivethirtyeight')
 register_matplotlib_converters()
@@ -14,6 +15,7 @@ register_matplotlib_converters()
 
 # For now, only work with AAPL stock
 symbol = 'AAPL'
+time_range = '1y'
 
 # Retrieve API Key
 from secrets import IEX_CLOUD_API_TOKEN
@@ -23,7 +25,7 @@ columns = ['Date', 'Close', 'MACD', 'Signal']
 df = pd.DataFrame(columns=columns)
 
 # Retrieve MACD data
-api_url = f"https://sandbox.iexapis.com/stable/stock/{symbol}/indicator/macd?range=1y&token={IEX_CLOUD_API_TOKEN}"
+api_url = f"https://sandbox.iexapis.com/stable/stock/{symbol}/indicator/macd?range={time_range}&token={IEX_CLOUD_API_TOKEN}"
 data = requests.get(api_url).json()
 days = len(data['chart'])
 # print(f'Days in report: {days}')
@@ -58,7 +60,7 @@ plot.show()
 
 # Plot MACD data
 plot.figure(figsize=(15, 6))
-plot.plot(df.index, df['MACD'], label = 'KO MACD', color = 'red')
+plot.plot(df.index, df['MACD'], label = f'{symbol} MACD', color = 'red')
 plot.plot(df.index, df['Signal'], label = 'Signal Line', color = 'blue')
 plot.legend(loc = 'upper left')
 plot.show()
@@ -69,23 +71,19 @@ def buy_sell(data):
     position = None
     
     for i in range(0, len(data)):
-        if data['MACD'][i] == None:
-            Buy.append(np.NaN)
-            Sell.append(np.NaN)
-        if not position:
-            if data['MACD'][i] > 0 and data['MACD'][i] > data['Signal'][i]:
+        macd = data['MACD'][i]
+        signal = data['Signal'][i]
+        if macd_check(macd, signal, position):
+            if position:
+                print("Selling shares at $%.2f\n" % (data['Close'][i]))
+                Buy.append(np.NaN)
+                Sell.append(data['Close'][i])
+                position = None
+            else:
                 print("Buying shares at $%.2f" % (data['Close'][i]))
                 Buy.append(data['Close'][i])
                 Sell.append(np.NaN)
                 position = 1
-            else:
-                Buy.append(np.NaN)
-                Sell.append(np.NaN)
-        elif data['MACD'][i] < data['Signal'][i]:
-            print("Selling shares at $%.2f" % (data['Close'][i]))
-            Buy.append(np.NaN)
-            Sell.append(data['Close'][i])
-            position = None
         else:
             Buy.append(np.NaN)
             Sell.append(np.NaN)
