@@ -53,7 +53,7 @@ print(final_dataframe)
 ########################################################################
 
 # Retrieve the user's portfolio value ($$$)
-portfolio_size = portfolio_input
+portfolio_size = portfolio_input()
 
 # Calculate the position size required for each stock
 position_size = float(portfolio_size) / len(final_dataframe.index)

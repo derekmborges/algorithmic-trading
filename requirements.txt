@@ -11,3 +11,4 @@ scipy==1.6.0
 XlsxWriter==1.2.2
 matplotlib==3.3.4
 selenium==3.141.0
+finnhub-python==2.4.0
