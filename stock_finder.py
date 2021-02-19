@@ -7,27 +7,15 @@ import time
 
 def get_10_best_active_stocks():
     # Load stocks page
-    # options = Options()
-    # options.add_argument('--headless')
-    # options.add_argument('--disable-gpu')
-    # driver = webdriver.Chrome(options = options)
-    driver = webdriver.Chrome()
+    options = Options()
+    options.add_argument('--headless')
+    driver = webdriver.Chrome(options = options)
     driver.implicitly_wait(10)
-    driver.get("https://finance.yahoo.com/most-active/")
-    assert "Most Active Stocks" in driver.title
-
-    # Sort by change descending
-    e = driver.find_element(By.XPATH, "//*[text()='% Change']");
-    e.click()
+    driver.get("https://finance.yahoo.com/gainers/")
+    assert "Top Stock Gainers" in driver.title
     e = WebDriverWait(driver, 10).until(
         EC.visibility_of_element_located((By.XPATH, "//*[text()='% Change']"))
     )
-    time.sleep(1)
-    e.click()
-    e = WebDriverWait(driver, 10).until(
-        EC.visibility_of_element_located((By.XPATH, "//*[text()='% Change']"))
-    )
-    time.sleep(1)
 
     # Grab top 10 stocks
     symbol_links = driver.find_elements_by_xpath("//td[@aria-label='Symbol']/a[contains(@href,'/quote/')]");

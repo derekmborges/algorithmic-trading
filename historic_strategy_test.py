@@ -138,14 +138,15 @@ def main(args, portfolio_amount):
                 # if stoch_check(stoch, position):
                     # trade_triggers[time].append({ 'STOCH': stoch })
                 
-                if position:
-                    print('Sell Triggers:', trade_triggers[time]['Sell'])
-                else:
-                    print('Buy Triggers:', trade_triggers[time]['Buy'])
+                
                 unique_buy_triggers = list(trade_triggers[time]['Buy'].keys())
                 [unique_buy_triggers.append(t) for t in trade_triggers[prev_time]['Buy'].keys() if t not in unique_buy_triggers]
                 unique_sell_triggers = list(trade_triggers[time]['Sell'].keys())
                 [unique_sell_triggers.append(t) for t in trade_triggers[prev_time]['Sell'].keys() if t not in unique_sell_triggers]
+                if position:
+                    print(f'Sell Triggers {len(unique_sell_triggers)}:', trade_triggers[time]['Sell'])
+                else:
+                    print(f'Buy Triggers: {len(unique_buy_triggers)}:', trade_triggers[time]['Buy'])
 
                 # If indicators tell it to buy
                 if not position and len(unique_buy_triggers) >= 2:
@@ -221,7 +222,7 @@ def main(args, portfolio_amount):
     # Display results
     print(f'\nTOTAL GAINS ON {trading_day}:')
     updated_portfolio = portfolio
-    for symbol in symbols:
+    for symbol in results.keys():
         updated_portfolio += results[symbol]
         print(f'{symbol}: $%.2f' % results[symbol])
     print()
