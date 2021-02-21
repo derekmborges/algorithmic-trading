@@ -5,16 +5,16 @@ def chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
-def portfolio_input():
+def portfolio_input(message=None):
     global portfolio_size
     # Retrieve the user's portfolio value ($$$)
-    portfolio_size = input('Enter the value of your portfolio: ')
+    portfolio_size = input(message if message else 'Enter the value of your portfolio: ')
     try:
         float(portfolio_size)
         return portfolio_size
     except ValueError:
         print('Value must be a number.\n')
-        portfolio_size = input('Enter the value of your portfolio: ')
+        portfolio_size = input(message if message else 'Enter the value of your portfolio: ')
         float(portfolio_size)
         return portfolio_size
 

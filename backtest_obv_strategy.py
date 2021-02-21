@@ -9,7 +9,7 @@ import matplotlib.pyplot as plot
 plot.style.use('fivethirtyeight')
 register_matplotlib_converters()
 
-def backtest_obv_strategy(args, portfolio_amount):
+def backtest_obv_strategy(args):
     # If no symbols were passed in
     # Retrieve top active stocks from Yahoo Finance
     try:
@@ -18,6 +18,8 @@ def backtest_obv_strategy(args, portfolio_amount):
         print('No symbol(s) provided. Retrieving top 10 from Yahoo Finance...')
         symbols = get_10_best_active_stocks()
     
+    portfolio_amount = portfolio_input('Enter cash amount to give each stock: ')
+
     try:
         splices = args[2].split(',')
     except IndexError:
@@ -196,4 +198,4 @@ def backtest_obv_strategy(args, portfolio_amount):
     # plot.show()
     
 
-backtest_obv_strategy(sys.argv, portfolio_input())
+backtest_obv_strategy(sys.argv)
