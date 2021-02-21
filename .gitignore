@@ -7,3 +7,4 @@ __pycache__
 **/value_strategy.xlsx
 env/
 .vscode
+data/
