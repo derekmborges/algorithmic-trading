@@ -3,7 +3,7 @@ import math
 import pandas as pd
 from pandas.plotting import register_matplotlib_converters
 from helpers import is_market_open, portfolio_input
-from stock_finder import get_10_best_active_stocks
+from yahoo_finance_stocks import get_10_best_active_stocks
 from stock_data import get_stock_data
 import matplotlib.pyplot as plot
 plot.style.use('fivethirtyeight')
