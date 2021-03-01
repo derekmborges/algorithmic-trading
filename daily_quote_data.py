@@ -10,7 +10,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 
 # Run in the evening to retrieve stock data from today
-def daily_candlestick_data(event, context):
+def daily_quote_data(event, context):
     # Get TD Ameritrade API key
     storage_client = storage.Client()
     bucket = storage_client.get_bucket('derek-algo-trading-bucket')
@@ -24,7 +24,6 @@ def daily_candlestick_data(event, context):
     market_url = 'https://api.tdameritrade.com/v1/marketdata/EQUITY/hours'
     params = { 'apikey': api_key, 'date': today_fmt }
     response = requests.get(url=market_url, params=params).json()
-    # print(response)
 
     try:
         if response['equity']['EQ']['isOpen']:
@@ -95,10 +94,8 @@ def daily_candlestick_data(event, context):
             return 'Success'
 
         else:
-            print('Market Not Open Today')
-            pass
+            return 'Market Not Open Today'
     except KeyError:
-        print('Not a weekday')
-        pass
+        return 'Not a weekday'
 
-daily_candlestick_data()
+print(daily_quote_data(None, None))
