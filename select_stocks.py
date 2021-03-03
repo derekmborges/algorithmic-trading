@@ -1,7 +1,5 @@
 from google.cloud import bigquery
 import pandas as pd
-import numpy as np
-import math
 
 def select_stocks(event, context):
     client = bigquery.Client()
