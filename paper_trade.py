@@ -1,56 +1,62 @@
 import secrets
 import websocket
 import json
-import pytz
 import math
-from google.cloud import bigquery
+import _thread
+from google.cloud import storage
 from alpaca_trade_api import REST
 from datetime import datetime
 import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
+import btalib
 
+# Get Alpaca API key and secret
+storage_client = storage.Client()
+bucket = storage_client.get_bucket('derek-algo-trading-bucket')
+blob = bucket.blob('alpaca-api-key.txt')
+api_key = blob.download_as_text()
+blob = bucket.blob('alpaca-secret-key.txt')
+secret_key = blob.download_as_text()
 base_url = 'https://paper-api.alpaca.markets'
-api = REST(secrets.ALPACA_API_KEY, secrets.ALPACA_SECRET_KEY, base_url, 'v2')
+api = REST(api_key, secret_key, base_url, 'v2')
 
-# Load the selected stocks from BigQuery
-client = bigquery.Client()
-sql_symbols = """
-    SELECT symbol
-    FROM `splendid-cirrus-302501.stock_data.selected_stocks`
-"""
-symbols = client.query(sql_symbols).to_dataframe()['symbol'].values
+# Load the selected stocks from the watchlist
+symbols = []
+watchlist = api.get_watchlist_by_name('Primary Watchlist')
+for asset in watchlist.assets:
+    symbols.append(asset['symbol'])
 
-# Get the current portfolio amount
+# Get the current cash amount
 portfolio = api.get_account()
-cash = float(portfolio.portfolio_value)
+cash = float(portfolio.cash)
 individual_cash = cash / len(symbols)
+positions = api.list_positions()
 
 print('TRADING DETAILS')
-print('====================')
-print('Today\'stocks: {}'.format(', '.join(symbols)))
-print('Today\'s portfolio: $%.2f' % cash)
-print('====================')
+print('=======================================')
+print('Today\'s stocks: {}'.format(', '.join(symbols)))
+print('Available cash: $%.2f' % cash)
+if positions:
+    print('Current positions:')
+    for position in positions:
+        print(f'> {position.symbol}: ${position.market_value}')
+print('=======================================')
 print()
 
 # Get 5Min candlestick data and calculate OBV and OBV_EMA
 print('Initializing bot...')
-bars_group = api.get_barset(','.join(symbols), '5Min', limit=125).df
+bars_group = api.get_barset(','.join(symbols), '5Min', limit=1000).df
 symbol_bars = {}
 for symbol in symbols:
-    obv = [0]
     df = bars_group[symbol]
-    for i in range(1, len(df.index)):
-        if df['close'][i] > df['close'][i-1]:
-            obv.append(obv[-1] + df['volume'][i])
-        elif df['close'][i] < df['close'][i-1]:
-            obv.append(obv[-1] - df['volume'][i])
-        else:
-            obv.append(obv[-1])
-    
-    df['obv'] = obv
+    obv = btalib.obv(df).df
+    df['obv'] = obv['obv']
     df['obv_ema'] = df['obv'].ewm(span=20).mean()
+    # df['time'] = df.index.values
     symbol_bars[symbol] = df
+    latest_dt = df.index[len(df.index) - 1]
+    print(f'Latest 5Min bar for {symbol}: {latest_dt}')
 
 def on_open(ws):
     print('Authenticating with API...')
@@ -71,8 +77,10 @@ def on_open(ws):
     }
     ws.send(json.dumps(listen_data))
 
-def process_bar(symbol, data):
-    end_dt = datetime.fromtimestamp(data['e']).astimezone(pytz.timezone('US/Eastern'))
+def process_bar(data):
+    symbol = data['T']
+    end_dt = datetime.fromtimestamp(data['e']/1000.0)
+
     # Only care about 5min bars
     if end_dt.minute % 5 == 0:    
         # Display bar info
@@ -80,101 +88,133 @@ def process_bar(symbol, data):
         print('{0}: {1} - close=${2} , volume={3}'.format(end_dt, symbol, ('%.2f' % close), volume))
 
         # Load the symbol's past 5min bars
-        df = pd.DataFrame(symbol_bars[symbol])
+        df = symbol_bars[symbol]
 
-        # Set OBV equal to previous 5min's value
-        previous_i = len(df.index) - 1
-        obv = df['obv'][previous_i]
+        try:
+            # Add bar to DataFrame
+            row = pd.Series({
+                'open': open,
+                'high': high,
+                'low': low,
+                'close': close,
+                'volume': volume,
+                'obv': np.nan,
+                'obv_ema': np.nan
+            }, name=end_dt)
+            df = df.append(row)
 
-        # Calculate new OBV
-        if close > df['close'][previous_i]:
-            obv += volume
-        elif close < df['close'][previous_i]:
-            obv -= volume
+            # Recalculate OBV
+            obv = btalib.obv(df).df
+            df['obv'] = obv['obv']
+            df['obv_ema'] = df['obv'].ewm(span=20).mean()
 
-        # Add bar to DataFrame
-        df = df.append({
-            'time': end_dt,
-            'open': open,
-            'high': high,
-            'low': low,
-            'close': close,
-            'volume': volume,
-            'obv': obv,
-            'obv_ema': np.nan
-        })
-        df['obv_ema'] = df['obv'].ewm(span=20).mean()
+            # Store updated DataFrame
+            symbol_bars[symbol] = df
+        except Exception as ex:
+            print('Error:', ex)
         
-        # Store updated DataFrame
-        symbol_bars[symbol] = df
+        process_trade(symbol)
+        print('\n')
 
-symbol_positions = {}
-for symbol in symbols:
-    symbol_positions[symbol] = {}
 def process_trade(symbol):
+    # Update available cash
+    cash = float(api.get_account().cash)
+
     # Retrieve a position if the bot is holding
     try:
         position = api.get_position(symbol)
     except:
         position = None
 
-    df = symbol_bars[symbol]
-    last = len(df.index) - 1
-    obv = df['obv'][last]
-    obv_ema = df['obv_ema'][last]
-    current_price = position.current_price if position else df['close'][last]
-    buy_price = symbol_positions[symbol]['buy_price'] if position else None
-    stop_loss = symbol_positions[symbol]['stop_loss'] if position else None
-
-    if not position and obv > obv_ema:
-        qty = math.floor(individual_cash / current_price)
-        stop_loss_price = current_price * 0.98
-        order = api.submit_order(
-            symbol=symbol,
-            side='buy',
-            type='market',
-            qty=str(qty),
-            time_in_force='day',
-            order_class='bracket',
-            stop_loss=dict(
-                stop_price=str(stop_loss_price),
-                limit_price=str(stop_loss_price),
-            )
-        )
-        symbol_positions[symbol]['order'] = order
-        symbol_positions[symbol]['buy_price'] = current_price
-        symbol_positions[symbol]['stop_loss'] = stop_loss_price
-        print(f'Submitted BUY order for {qty} shares of {symbol}')
+    try:
+        df = symbol_bars[symbol]
+        last = len(df.index) - 1
+        obv = df['obv'][last]
+        obv_ema = df['obv_ema'][last]
+        close_price = df['close'][last]
     
-    elif position and obv < obv_ema:
-        order = api.submit_order(
-            symbol=symbol,
-            side='sell',
-            type='market',
-            qty=position.qty,
-            time_in_force='day'
-        )
-        symbol_positions[symbol]['order'] = order
-        print(f'Submitted SELL order for {position.qty} shares of {symbol}')
+        # Look to buy
+        if not position and close_price > 0:
+            print(f'Not holding {symbol}')
+            print(f'{obv} > {obv_ema} = {obv > obv_ema}')
+            if obv > obv_ema:
+                # Check if there's already an order
+                current_order = None
+                orders = api.list_orders()
+                if orders:
+                    for order in orders:
+                        if order.symbol == symbol and order.side == 'buy':
+                            current_order = order
+                
+                qty = math.floor(individual_cash / close_price)
+                # If there's not already an order out there and if there's cash available
+                if not current_order and individual_cash > 0:
+                    api.submit_order(
+                        symbol=symbol,
+                        side='buy',
+                        type='market',
+                        qty=str(qty),
+                        time_in_force='day',
+                        order_class='simple',
+                        # take_profit=dict(
+                        #     limit_price=str(close_price * 1.5)
+                        # ),
+                        # stop_loss=dict(
+                        #     stop_price=str(stop_loss_price),
+                        #     limit_price=str(stop_loss_price),
+                        # )
+                    )
+                    print(f'Submitted BUY order for {qty} shares of {symbol}')
+                elif current_order:
+                    api.replace_order(order.id, qty=str(qty))
+                    print(f'Replaced BUY order for {qty} shares of {symbol}')
+                else:
+                    print('Not enough cash to buy right now...')
 
-    # Sell if its holding and the price has dropped to our stop loss
-    elif position and current_price <= stop_loss:
-        order = api.submit_order(
-            symbol=symbol,
-            side='sell',
-            type='market',
-            qty=position.qty,
-            time_in_force='day'
-        )
-        symbol_positions[symbol]['order'] = order
-        print(f'Submitted STOP LOSS SELL order for {position.qty} shares of {symbol}')
+        elif close_price > 0:
+            current_price = float(position.current_price)
+            buy_price = float(position.avg_entry_price)
+            stop_loss = float(position.avg_entry_price) * 0.98
+            print(f'Currently holding {position.symbol}')
+            print(f'{obv} < {obv_ema} = {obv < obv_ema}')
 
-    # Update trailing stop loss if price is rising
-    elif position and current_price > buy_price and (current_price * 0.96) > stop_loss:
-        symbol_positions[symbol]['stop_loss'] = current_price * 0.96
+            # Cancel any open sell orders
+            orders = api.list_orders()
+            if orders:
+                for order in orders:
+                    if order.symbol == symbol and order.side == 'sell':
+                        api.cancel_order(order.id)
 
-    # If the market's about to close, sell remaining positions
-    # TODO POSSIBLY
+            # Look to sell
+            if obv < obv_ema:
+                api.submit_order(
+                    symbol=symbol,
+                    side='sell',
+                    type='market',
+                    qty=position.qty,
+                    time_in_force='day'
+                )
+                print(f'Submitted SELL order for {position.qty} shares of {symbol}')
+
+            # Sell if its holding and the price has dropped to the stop loss
+            elif current_price <= stop_loss:
+                api.submit_order(
+                    symbol=symbol,
+                    side='sell',
+                    type='market',
+                    qty=position.qty,
+                    time_in_force='day'
+                )
+                print(f'Submitted STOP LOSS SELL order for {position.qty} shares of {symbol}')
+
+            # Update trailing stop loss if price is rising
+            elif current_price > buy_price and (current_price * 0.96) > stop_loss:
+                pass
+        # If the market's about to close, sell remaining positions
+        # TODO POSSIBLY
+
+    except Exception as ex:
+        print('Error:', ex)
 
 
 def on_message(ws, message):
@@ -184,22 +224,15 @@ def on_message(ws, message):
         print('Socket', response['data']['status'])
 
     elif response['stream'] == 'listening':
-        print('Listening to minute bar streams...')
+        print('Listening to 5-minute bar streams...')
         print('----------------------------------')
 
     elif 'AM' in response['stream']:
-        print(response['stream']) # Debug
-        symbol = response['stream'].split('.')[1]
-        process_bar(symbol=symbol, data=response['data'])
-        process_trade(symbol=symbol)
+        data = response['data']
+        _thread.start_new_thread(process_bar(data))
 
     else:
         print('Unknown response:', response)
-        
-
-def on_error(ws, error):
-    print('error:')
-    print(error)
 
 socket_url = 'wss://data.alpaca.markets/stream'
 ws = websocket.WebSocketApp(socket_url, on_open=on_open, on_message=on_message)
