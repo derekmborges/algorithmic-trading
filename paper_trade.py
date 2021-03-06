@@ -1,4 +1,3 @@
-import secrets
 import websocket
 import json
 import math
@@ -12,7 +11,7 @@ pd.set_option('mode.chained_assignment', None)
 import btalib
 
 # Get Alpaca API key and secret
-storage_client = storage.Client()
+storage_client = storage.Client.from_service_account_json('./splendid-cirrus-302501-7e3faab608d2.json')
 bucket = storage_client.get_bucket('derek-algo-trading-bucket')
 blob = bucket.blob('alpaca-api-key.txt')
 api_key = blob.download_as_text()
@@ -63,8 +62,8 @@ def on_open(ws):
     auth_data = {
         "action": "authenticate",
         "data": {
-            "key_id": secrets.ALPACA_API_KEY,
-            "secret_key": secrets.ALPACA_SECRET_KEY
+            "key_id": api_key,
+            "secret_key": secret_key
         }
     }
     ws.send(json.dumps(auth_data))

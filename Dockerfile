@@ -14,7 +14,7 @@ RUN pip install -r requirements.txt
 COPY paper_trade.py .
 
 # Copy the Google Cloud credentials
-COPY /Users/Derek/.gcp/splendid-cirrus-302501-7e3faab608d2.json .
+COPY splendid-cirrus-302501-7e3faab608d2.json .
 
 # command to run on container start
 CMD [ "python", "./paper_trade.py" ]
