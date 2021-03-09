@@ -12,7 +12,7 @@ def chunks(l, n):
     n = max(1, n)
     return (l[i:i+n] for i in range(0, len(l), n))
 
-def select_stocks(event, context):
+def select_day_trade_stocks(event, context):
     # Get Alpaca API key and secret
     storage_client = storage.Client()
     bucket = storage_client.get_bucket('derek-algo-trading-bucket')
@@ -81,8 +81,8 @@ def select_stocks(event, context):
     print(symbols)
 
     # Store them in Alpaca watchlist
-    watchlist = api.get_watchlist_by_name('Primary Watchlist')
+    watchlist = api.get_watchlist_by_name('day-trade-stocks')
     api.update_watchlist(watchlist.id, symbols=symbols)
     print('Success')
 
-select_stocks(None, None)
+select_day_trade_stocks(None, None)

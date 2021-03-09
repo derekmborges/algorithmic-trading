@@ -19,5 +19,7 @@ tzdata==2021.1
 six==1.15.0
 backports.ssl_match_hostname==3.7.0.1
 websocket-client==0.57.0
-alpaca-trade-api==0.53.0
 bta-lib==1.0.0
+PyPortfolioOpt==1.4.1
+ta
+alpaca-trade-api>=0.25
