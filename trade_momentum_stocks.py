@@ -1,23 +1,17 @@
-from requests.exceptions import HTTPError
-import websocket
-import json
-import math
-import _thread
 import requests
 from google.cloud import storage
 import alpaca_trade_api as tradeapi
-# from alpaca_trade_api import REST
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
-import btalib
 import time
 from pytz import timezone
 import ta.trend
+import discord_webhook
 
 # Get Alpaca API key and secret
-storage_client = storage.Client.from_service_account_json('./splendid-cirrus-302501-7e3faab608d2.json')
+storage_client = storage.Client()
 bucket = storage_client.get_bucket('derek-algo-trading-bucket')
 blob = bucket.blob('alpaca-api-key.txt')
 api_key = blob.download_as_text()
@@ -29,7 +23,7 @@ api = tradeapi.REST(api_key, secret_key, base_url, 'v2')
 session = requests.session()
 
 # Price windows to filter stocks
-min_share_price = 2.0
+min_share_price = 5.0
 max_share_price = 13.0
 
 # Minimum previous-day dollar volume for a stock
@@ -72,7 +66,7 @@ def get_tickers():
             day_bars[symbol] = day_group[symbol]
 
     tickers = []
-    for symbol in symbols[:250]:
+    for symbol in symbols:
         try:
             prevDay = day_bars[symbol][0]
             prevVolume = prevDay.v
@@ -96,6 +90,7 @@ def get_tickers():
     return tickers
 
 def find_stop(current_value, minute_history, now):
+    print('finding stop')
     series = minute_history['low'][-100:] \
                 .dropna().resample('5min').min()
     series = series[now.floor('1D'):]
@@ -105,10 +100,28 @@ def find_stop(current_value, minute_history, now):
         return series[low_index[-1]] - 0.01
     return current_value * default_stop
 
-def run(tickers, market_open_dt, market_close_dt):
-    conn = tradeapi.StreamConn(base_url=base_url, key_id=api_key, secret_key=secret_key)
-    # conn = tradeapi.stream2.StreamConn(base_url=base_url, key_id=api_key, secret_key=secret_key)
-
+def run(market_open_dt, market_close_dt):
+    conn = tradeapi.stream2.StreamConn(base_url=base_url, key_id=api_key, secret_key=secret_key)
+    
+    # If it's starting back up, load the watchlist
+    watchlist = api.get_watchlist_by_name('paper-trade-stocks')
+    if watchlist.assets:
+        print('Pulling from watchlist')
+        tickers = []
+        for asset in watchlist.assets:
+            symbol = asset['symbol']
+            prevDay = api.get_barset(symbol, '1D', limit=1)[symbol][0]
+            prevVolume = prevDay.v
+            tickers.append({
+                'ticker': symbol,
+                'prevClose': prevDay.c,
+                'volume': prevVolume
+            })
+    # If it's starting the first time today, select stocks and update the watchlist
+    else:
+        tickers = get_tickers()
+        api.update_watchlist(watchlist.id, symbols=[ticker['ticker'] for ticker in tickers])
+    
     # Update initial state with info from tickers
     volume_today = {}
     prev_closes = {}
@@ -119,8 +132,9 @@ def run(tickers, market_open_dt, market_close_dt):
     
     symbols = [ticker['ticker'] for ticker in tickers]
     print('Tracking {} symbols.'.format(len(symbols)))
-    minute_history = get_1000m_history_data(symbols)
+    discord_webhook.notify_intro(len(symbols))
 
+    minute_history = get_1000m_history_data(symbols)
     portfolio_value = float(api.get_account().portfolio_value)
 
     open_orders = {}
@@ -154,8 +168,9 @@ def run(tickers, market_open_dt, market_close_dt):
     @conn.on(r'trade_update')
     async def handle_trade_update(conn, channel, data):
         symbol = data.order['symbol']
+        print('\n\nTrade update: ', symbol)
         last_order = open_orders.get(symbol)
-        if not last_order:
+        if last_order is not None:
             event = data.event
             if event == 'partial_fill':
                 qty = int(data.order['filled_qty'])
@@ -167,6 +182,11 @@ def run(tickers, market_open_dt, market_close_dt):
                 partial_fills[symbol] = qty
                 positions[symbol] += qty
                 open_orders[symbol] = data.order
+
+                action = 'sold' if data.order['side'] == 'sell' else 'bought'
+                alert = f"Partially {action} {qty} shares of {symbol} at ${data.order['limit_price']}"
+                discord_webhook.notify_trade(alert)
+                print(alert)
             elif event == 'fill':
                 qty = int(data.order['filled_qty'])
                 if data.order['side'] == 'sell':
@@ -177,16 +197,28 @@ def run(tickers, market_open_dt, market_close_dt):
                 partial_fills[symbol] = 0
                 positions[symbol] += qty
                 open_orders[symbol] = None
+                
+                action = 'Sold' if data.order['side'] == 'sell' else 'Bought'
+                alert = f"{action} {qty} shares of {symbol} at ${data.order['limit_price']}"
+                if action == 'Sold':
+                    profit_percent = (
+                        (float(data.order['limit_price']) - latest_cost_basis[symbol]) / latest_cost_basis[symbol] * 100
+                    )
+                    alert += ' ({}{}%)'.format('+' if profit_percent > 0 else '', '%.2f' % profit_percent)
+                discord_webhook.notify_trade(alert)
+                print(alert)
             elif event == 'canceled' or event == 'rejected':
+                print('Order canceled or rejected')
                 partial_fills[symbol] = 0
                 open_orders[symbol] = None
-    
+        print()
+
     # Replace aggregated 1Sec bars with incoming 1Min bars
-    @conn.on(r'AM$')
+    @conn.on(r'^AM\..+$')
     async def handle_minute_bar(conn, channel, data):
         symbol = data.symbol
         ts = data.start
-        print('{}: {}'.format(ts, symbol))
+        print('\n{}: {} - ${}'.format(ts, symbol, data.close))
         ts -= timedelta(microseconds=ts.microsecond)
         minute_history[data.symbol].loc[ts] = [
             data.open,
@@ -200,6 +232,7 @@ def run(tickers, market_open_dt, market_close_dt):
         # Next, check for existing orders for the stock
         existing_order = open_orders.get(symbol)
         if existing_order is not None:
+            print('Waiting on order to be filled')
             # Make sure order is not too old
             submission_ts = existing_order.submitted_at.astimezone(
                 timezone('America/New_York')
@@ -213,38 +246,21 @@ def run(tickers, market_open_dt, market_close_dt):
         # Now check for buy/sell conditions
         since_market_open = ts - market_open_dt
         until_market_close = market_close_dt - ts
+        print('minutes since market open:', since_market_open.seconds // 60)
+        print('minutes till market close: ', until_market_close.seconds // 60)
 
-        # Check at 9:45AM for a buy signal
+        # Already holding shares?
+        position = positions.get(symbol, 0)
+
+        # Check after 9:45AM for buy signals
         if (
-            since_market_open.minutes > 15 and
-            since_market_open.minutes < 60
+            since_market_open.seconds // 60 > 15 and
+            position == 0
         ):
-            # Already holding shares?
-            position = positions.get(symbol, 0)
-            if position > 0:
-                return
-
-            # Check how high the price went in 15 minutes
-            lower = market_open_dt
-            upper = lower + timedelta(minutes=15)
-            high_15min = 0
-            try:
-                high_15min = minute_history[symbol][lower:upper]['high'].max()
-            except Exception as e:
-                # Because data is aggregating in realtime,
-                # sometimes the datetime index is not there
-                # until it gets healed by the minute bars
-                return
-            
             # Get the change percent since yesterday's market close
-            daily_pct_change = (
-                (data.close - prev_closes[symbol]) / prev_closes[symbol]
-            )
-            if (
-                daily_pct_change > .04 and
-                data.close > high_15min and
-                volume_today[symbol] > 30000
-            ):
+            daily_pct_change = ((data.close - prev_closes[symbol]) / prev_closes[symbol])
+            print(f'Daily % change: {daily_pct_change}')
+            if ( daily_pct_change > .04 and volume_today[symbol] > 30000 ):
                 # Check for a positive, increasing MACD
                 hist = ta.trend.macd(
                     minute_history[symbol]['close'].dropna(),
@@ -255,16 +271,16 @@ def run(tickers, market_open_dt, market_close_dt):
                     hist[-1] < 0 or
                     not (hist[-3] < hist[-2] < hist[-1])
                 ):
+                    print('MACD is < 0 or is downtrending')
                     return
-                
                 hist = ta.trend.macd(
                     minute_history[symbol]['close'].dropna(),
                     window_fast=40,
                     window_slow=60
                 )
                 if hist[-1] < 0 or np.diff(hist)[-1] < 0:
+                    print('MACD < 0 or diff is < 0')
                     return
-                
                 stop_price = find_stop(data.close, minute_history[symbol], ts)
                 stop_prices[symbol] = stop_price
 
@@ -276,7 +292,7 @@ def run(tickers, market_open_dt, market_close_dt):
                 )
                 if shares_to_buy == 0:
                     shares_to_buy = 1
-                shares_to_buy -= positions.get(symbol , 0)
+                shares_to_buy -= positions.get(symbol, 0)
                 if shares_to_buy <= 0:
                     return
                 
@@ -296,14 +312,12 @@ def run(tickers, market_open_dt, market_close_dt):
                 return
         
         # Check for liquidation signals
-        if (
-            since_market_open.minutes >= 24 and
-            until_market_close.minutes > 15
+        elif (
+            position > 0 and
+            since_market_open.seconds // 60 >= 24 and
+            until_market_close.seconds // 60 > 15
         ):
-            position = positions.get(symbol, 0)
-            if position == 0:
-                return
-            
+            print('Currently holding')
             # Sell for loss if price is below stop price
             # Sell for loss if price is below purchase and MACD < 0
             # Sell for profit if it's above target price
@@ -333,7 +347,7 @@ def run(tickers, market_open_dt, market_close_dt):
             return
         
         # Check for end of day
-        elif until_market_close.seconds // 60 <= 15:
+        if until_market_close.seconds // 60 <= 15:
             # Liquidate remaining positions
             try:
                 position = api.get_position(symbol)
@@ -348,15 +362,21 @@ def run(tickers, market_open_dt, market_close_dt):
             symbols.remove(symbol)
             if len(symbols) <= 0:
                 conn.close()
-            conn.deregister([
-                # 'A.{}'.format(symbol),
-                'AM.{}'.format(symbol)
-            ])
+                print('Stream connection closed.')
+            conn.deregister(['AM.{}'.format(symbol)])
+            print(f'Deregistered {symbol}.')
+        elif until_market_close.seconds // 60 <= 1:
+            symbols.remove(symbol)
+            if len(symbols) <= 0:
+                conn.close()
+                print('Stream connection closed.')
+            conn.deregister(['AM.{}'.format(symbol)])
+            print(f'Deregistered {symbol}.')
+        print()
     
     
     channels = ['trade_updates']
     for symbol in symbols:
-        # symbol_channels = ['A.{}'.format(symbol), 'AM.{}'.format(symbol)]
         symbol_channels = ['AM.{}'.format(symbol)]
         channels += symbol_channels
     print('Watching {} symbols.'.format(len(symbols)))
@@ -376,21 +396,32 @@ if __name__ == "__main__":
     today = datetime.today().astimezone(nyc)
     today_str = today.strftime('%Y-%m-%d')
     calendar = api.get_calendar(start=today_str, end=today_str)[0]
-    market_open = today.replace(
-        hour=calendar.open.hour,
-        minute=calendar.open.minute,
-        second=0
-    ).astimezone(nyc)
-    market_close = today.replace(
-        hour=calendar.close.hour,
-        minute=calendar.close.minute,
-        second=0
-    ).astimezone(nyc)
-
-    # Wait until just before we might want to trade
-    since_market_open = today - market_open
-    while since_market_open.seconds // 60 <= 14:
-        time.sleep(1)
-        since_market_open = today - market_open
-    
-    run(get_tickers(), market_open, market_close)
+    if calendar.date == today_str:
+        market_open = today.replace(
+            hour=calendar.open.hour,
+            minute=calendar.open.minute,
+            second=0,
+            microsecond=0
+        ).astimezone(nyc)
+        market_close = today.replace(
+            hour=calendar.close.hour,
+            minute=calendar.close.minute,
+            second=0,
+            microsecond=0
+        ).astimezone(nyc)
+        print(f'The current date/time is: {today}')
+        print(f'The market opens at: {market_open}')
+        print(f'The market closes at: {market_close}')
+        print()
+        
+        # Wait until just before we might want to trade
+        until_market_open = market_open - today
+        print('Waiting for market open...')
+        while until_market_open.seconds // 60 > 0:
+            time.sleep(1)
+            until_market_open = today - market_open
+        
+        run(market_open, market_close)
+    else:
+        print('Market is not open today')
+        discord_webhook.notify_trade('The market is not open today. Rest up for some future gains!')

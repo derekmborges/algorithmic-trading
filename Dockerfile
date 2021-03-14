@@ -5,16 +5,14 @@ FROM python:3.8
 WORKDIR /code
 
 # copy the dependencies file to the working directory
-COPY requirements.txt .
+COPY bot-requirements.txt requirements.txt
 
 # install dependencies
 RUN pip install -r requirements.txt
 
 # copy the content of the local src directory to the working directory
-COPY paper_trade.py .
-
-# Copy the Google Cloud credentials
-COPY splendid-cirrus-302501-7e3faab608d2.json .
+COPY trade_momentum_stocks.py .
+COPY discord_webhook.py .
 
 # command to run on container start
-CMD [ "python", "./paper_trade.py" ]
+CMD [ "python", "./trade_momentum_stocks.py" ]
