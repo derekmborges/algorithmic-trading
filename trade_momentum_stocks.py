@@ -413,14 +413,7 @@ if __name__ == "__main__":
         print(f'The market opens at: {market_open}')
         print(f'The market closes at: {market_close}')
         print()
-        
-        # Wait until just before we might want to trade
-        until_market_open = market_open - today
-        print('Waiting for market open...')
-        while until_market_open.seconds // 60 > 0:
-            time.sleep(1)
-            until_market_open = today - market_open
-        
+
         run(market_open, market_close)
     else:
         print('Market is not open today')
