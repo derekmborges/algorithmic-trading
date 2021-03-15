@@ -396,7 +396,7 @@ if __name__ == "__main__":
     today = datetime.today().astimezone(nyc)
     today_str = today.strftime('%Y-%m-%d')
     calendar = api.get_calendar(start=today_str, end=today_str)[0]
-    if calendar.date == today_str:
+    if calendar.date.strftime('%Y-%m-%d') == today_str:
         market_open = today.replace(
             hour=calendar.open.hour,
             minute=calendar.open.minute,
