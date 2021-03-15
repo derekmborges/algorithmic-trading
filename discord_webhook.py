@@ -31,3 +31,8 @@ def _send_messsage(message):
     webhook_url = 'https://discord.com/api/webhooks/820019542327558144/uQDd4qJw6Ho03ZYPgEG_A3x6mjwQBBze0uwefxp8Kd79OI_-9_DUTL9CvMdB5DsfEr3E'
     webhook = Webhook.from_url(webhook_url, adapter=RequestsWebhookAdapter())
     webhook.send(message)
+
+def send_error(error):
+    webhook_url = 'https://discord.com/api/webhooks/821144490130538526/Wyvu3uOiuqpZhEA7ljjTlQ178OTfujof318DlU-2fXAcMCdFReLcecs7mAaZNM_BE179'
+    webhook = Webhook.from_url(webhook_url, adapter=RequestsWebhookAdapter())
+    webhook.send(error)

@@ -91,13 +91,17 @@ def get_tickers():
 
 def find_stop(current_value, minute_history, now):
     print('finding stop')
-    series = minute_history['low'][-100:] \
-                .dropna().resample('5min').min()
-    series = series[now.floor('1D'):]
-    diff = np.diff(series.values)
-    low_index = np.where((diff[:-1] <= 0) & (diff[1:] > 0))[0] + 1
-    if (low_index) > 0:
-        return series[low_index[-1]] - 0.01
+    try:
+        series = minute_history['low'][-100:] \
+                    .dropna().resample('5min').min()
+        series = series[now.floor('1D'):]
+        diff = np.diff(series.values)
+        low_index = np.where((diff[:-1] <= 0) & (diff[1:] > 0))[0] + 1
+        if (low_index) > 0:
+            return series[low_index[-1]] - 0.01
+        return current_value * default_stop
+    except Exception as ex:
+        discord_webhook.send_error(ex)
     return current_value * default_stop
 
 def run(market_open_dt, market_close_dt):
@@ -121,6 +125,7 @@ def run(market_open_dt, market_close_dt):
     else:
         tickers = get_tickers()
         api.update_watchlist(watchlist.id, symbols=[ticker['ticker'] for ticker in tickers])
+        discord_webhook.notify_intro(len(tickers))
     
     # Update initial state with info from tickers
     volume_today = {}
@@ -132,7 +137,6 @@ def run(market_open_dt, market_close_dt):
     
     symbols = [ticker['ticker'] for ticker in tickers]
     print('Tracking {} symbols.'.format(len(symbols)))
-    discord_webhook.notify_intro(len(symbols))
 
     minute_history = get_1000m_history_data(symbols)
     portfolio_value = float(api.get_account().portfolio_value)
@@ -246,8 +250,8 @@ def run(market_open_dt, market_close_dt):
         # Now check for buy/sell conditions
         since_market_open = ts - market_open_dt
         until_market_close = market_close_dt - ts
-        print('minutes since market open:', since_market_open.seconds // 60)
-        print('minutes till market close: ', until_market_close.seconds // 60)
+        # print('minutes since market open:', since_market_open.seconds // 60)
+        # print('minutes till market close: ', until_market_close.seconds // 60)
 
         # Already holding shares?
         position = positions.get(symbol, 0)
@@ -257,8 +261,10 @@ def run(market_open_dt, market_close_dt):
             since_market_open.seconds // 60 > 15 and
             position == 0
         ):
+            # print('close:', data.close)
+            # print('compared to: ', prev_closes[symbol])
             # Get the change percent since yesterday's market close
-            daily_pct_change = ((data.close - prev_closes[symbol]) / prev_closes[symbol])
+            daily_pct_change = (data.close - prev_closes[symbol]) / prev_closes[symbol]
             print(f'Daily % change: {daily_pct_change}')
             if ( daily_pct_change > .04 and volume_today[symbol] > 30000 ):
                 # Check for a positive, increasing MACD
@@ -347,7 +353,7 @@ def run(market_open_dt, market_close_dt):
             return
         
         # Check for end of day
-        if until_market_close.seconds // 60 <= 15:
+        if position > 0 and until_market_close.seconds // 60 <= 15:
             # Liquidate remaining positions
             try:
                 position = api.get_position(symbol)
@@ -365,6 +371,8 @@ def run(market_open_dt, market_close_dt):
                 print('Stream connection closed.')
             conn.deregister(['AM.{}'.format(symbol)])
             print(f'Deregistered {symbol}.')
+
+        # Deregister watchers at end of the day
         elif until_market_close.seconds // 60 <= 1:
             symbols.remove(symbol)
             if len(symbols) <= 0:
@@ -372,8 +380,8 @@ def run(market_open_dt, market_close_dt):
                 print('Stream connection closed.')
             conn.deregister(['AM.{}'.format(symbol)])
             print(f'Deregistered {symbol}.')
+
         print()
-    
     
     channels = ['trade_updates']
     for symbol in symbols:
