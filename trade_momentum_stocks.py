@@ -188,7 +188,7 @@ def run(market_open_dt, market_close_dt):
                 open_orders[symbol] = data.order
 
                 action = 'sold' if data.order['side'] == 'sell' else 'bought'
-                alert = f"Partially {action} {qty} shares of {symbol} at ${data.order['limit_price']}"
+                alert = f"Partially {action} {abs(qty)} shares of {symbol} at ${data.order['limit_price']}"
                 discord_webhook.notify_trade(alert)
                 print(alert)
             elif event == 'fill':
@@ -203,7 +203,7 @@ def run(market_open_dt, market_close_dt):
                 open_orders[symbol] = None
                 
                 action = 'Sold' if data.order['side'] == 'sell' else 'Bought'
-                alert = f"{action} {qty} shares of {symbol} at ${data.order['limit_price']}"
+                alert = f"{action} {abs(qty)} shares of {symbol} at ${data.order['limit_price']}"
                 if action == 'Sold':
                     profit_percent = (
                         (float(data.order['limit_price']) - latest_cost_basis[symbol]) / latest_cost_basis[symbol] * 100
@@ -347,7 +347,7 @@ def run(market_open_dt, market_close_dt):
                         limit_price=str(data.close)
                     )
                     open_orders[symbol] = o
-                    latest_cost_basis[symbol]
+                    latest_cost_basis[symbol] = data.close
                 except Exception as e:
                     print(e)
             return
