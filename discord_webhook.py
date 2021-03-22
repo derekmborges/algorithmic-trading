@@ -2,22 +2,16 @@ from discord import Webhook, RequestsWebhookAdapter
 
 def notify_intro(num_symbols):
     summary = """
-**Today's trading plan**
+**New bot trading plan**
 
 Screening criteria:
-- Price between $5 - $13
-- previous day change > 3.5%
-- previous dollar volume > 500,000
+- 10 highest momentum stocks based on closing prices over 125 days.
 
 Buying criteria:
-- Today's change is > 4%
-- Today's volume is > 30,000
-- MACD is positive and increasing
+- N/A
 
 Selling criteria:
-- Price is below stop price
-- Price is below purchase and MACD < 0
-- Sell for profit if price is above target
+- Stock not in the 10 highest momentum stocks of the last 125 days.
 
 Today I will be watching {} symbols at 1 minute intervals.
 """.format(num_symbols)

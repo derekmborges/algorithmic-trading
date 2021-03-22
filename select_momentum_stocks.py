@@ -4,22 +4,16 @@ import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from alpaca_trade_api import REST
-from datetime import datetime
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt import risk_models
 from pypfopt import expected_returns
 from pypfopt.discrete_allocation import DiscreteAllocation, get_latest_prices
-import cvxpy
-
-def unix_time_sec(dt):
-    epoch = datetime.utcfromtimestamp(0)
-    return int((dt - epoch).total_seconds())
 
 def chunks(l, n):
     n = max(1, n)
     return (l[i:i+n] for i in range(0, len(l), n))
 
-def select_momentum_stocks(event, context):
+def select_momentum_stocks():
     # Get Alpaca API key and secret
     storage_client = storage.Client()
     bucket = storage_client.get_bucket('derek-algo-trading-bucket')
@@ -52,6 +46,7 @@ def select_momentum_stocks(event, context):
         annualized_slope = (np.power(np.exp(regress[0]), 252) -1) * 100
         return annualized_slope * (regress[2] ** 2)
 
+    c = 0
     for symbol in data.keys():
         df = data[symbol]
         df = df.loc[df['close'] > 0]
@@ -64,21 +59,20 @@ def select_momentum_stocks(event, context):
                 min_periods=minimum_momentum
             ).apply(momentum_score).reset_index(level=0, drop=True)
             all_df = all_df.append(df)
+        c += 1
+        if c % 100 == 0:
+            print(f'{c}/{len(data.keys())}')
+    print(f'{c}/{len(data.keys())}')
             
     
     portfolio_size = 10
     top_momentum_stocks = all_df.loc[all_df.index == all_df.index.max()]
     top_momentum_stocks = top_momentum_stocks.sort_values(by='momentum', ascending=False).head(portfolio_size)
-    print(top_momentum_stocks)
     universe = top_momentum_stocks['symbol'].tolist()
-
-    # Store them in Alpaca watchlist
-    watchlist = api.get_watchlist_by_name('momentum-stocks')
-    api.update_watchlist(watchlist.id, symbols=universe)
 
     df_universe = all_df.loc[all_df['symbol'].isin(universe)]
     df_universe = df_universe.pivot_table(
-        index='time',
+        index=df_universe.index,
         columns='symbol',
         values='close',
         aggfunc='sum'
@@ -94,12 +88,13 @@ def select_momentum_stocks(event, context):
     weights = ef.max_sharpe()
     cleaned_weights = ef.clean_weights()
 
+    portfolio_value = float(api.get_account().portfolio_value) * 0.95
     # Allocate
     latest_prices = get_latest_prices(df_universe)
     da = DiscreteAllocation(
         cleaned_weights,
         latest_prices,
-        total_portfolio_value=25000 # TODO: variablize
+        total_portfolio_value=portfolio_value
     )
 
     allocation = da.lp_portfolio()[0]
@@ -115,7 +110,4 @@ def select_momentum_stocks(event, context):
     df_buy['qty'] = num_shares_list
     df_buy['amount_held'] = df_buy['close'] * df_buy['qty']
     df_buy = df_buy.loc[df_buy['qty'] != 0]
-    print(df_buy)
-    print('Success')
-
-select_momentum_stocks(None, None)
+    return df_buy
