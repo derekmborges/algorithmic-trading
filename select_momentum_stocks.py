@@ -45,6 +45,12 @@ def select_momentum_stocks():
         regress = stats.linregress(x, log_ts)
         annualized_slope = (np.power(np.exp(regress[0]), 252) -1) * 100
         return annualized_slope * (regress[2] ** 2)
+    
+    def trend_score(ts):
+        array = ts.to_numpy()
+        result = np.polyfit(range(0, len(array)), array, 1)
+        slope = result[-2]
+        return float(slope)
 
     c = 0
     for symbol in data.keys():
@@ -52,24 +58,39 @@ def select_momentum_stocks():
         df = df.loc[df['close'] > 0]
         if len(df.index) >= 40:
             df['symbol'] = symbol
-            momentum_window = 125
-            minimum_momentum = 40
-            df['momentum'] = df.groupby('symbol')['close'].rolling(
-                momentum_window,
-                min_periods=minimum_momentum
+            momentum_window_large = 125
+            minimum_momentum_large = 40
+            momentum_window_small = 20
+
+            # 125-day momentum score
+            df['momentum_125'] = df.groupby('symbol')['close'].rolling(
+                momentum_window_large,
+                min_periods=minimum_momentum_large
             ).apply(momentum_score).reset_index(level=0, drop=True)
+
+            # 20-day momentum score
+            df['momentum_20'] = df.groupby('symbol')['close'].rolling(
+                momentum_window_small,
+                min_periods=momentum_window_small
+            ).apply(momentum_score).reset_index(level=0, drop=True)
+
+            # 3-day price trend score
+            df['3d_slope'] = df.groupby('symbol')['close'].rolling(3, min_periods=3)\
+                .apply(trend_score).reset_index(level=0, drop=True)
             all_df = all_df.append(df)
         c += 1
         if c % 100 == 0:
             print(f'{c}/{len(data.keys())}')
     print(f'{c}/{len(data.keys())}')
-            
-    
+
+
     portfolio_size = 10
     top_momentum_stocks = all_df.loc[all_df.index == all_df.index.max()]
-    top_momentum_stocks = top_momentum_stocks.sort_values(by='momentum', ascending=False).head(portfolio_size)
-    universe = top_momentum_stocks['symbol'].tolist()
+    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['momentum_20'] > 0]
+    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['3d_slope'] > 0]
+    top_momentum_stocks = top_momentum_stocks.sort_values(by='momentum_125', ascending=False).head(portfolio_size)
 
+    universe = top_momentum_stocks['symbol'].tolist()
     df_universe = all_df.loc[all_df['symbol'].isin(universe)]
     df_universe = df_universe.pivot_table(
         index=df_universe.index,
