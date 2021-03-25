@@ -21,6 +21,9 @@ Today I will be watching {} symbols at 1 minute intervals.
 def notify_trade(action):
     _send_messsage('TRADE: ' + action)
 
+def notify_info(info):
+    _send_messsage('INFO: ' + info)
+
 def _send_messsage(message):
     webhook_url = 'https://discord.com/api/webhooks/820019542327558144/uQDd4qJw6Ho03ZYPgEG_A3x6mjwQBBze0uwefxp8Kd79OI_-9_DUTL9CvMdB5DsfEr3E'
     webhook = Webhook.from_url(webhook_url, adapter=RequestsWebhookAdapter())

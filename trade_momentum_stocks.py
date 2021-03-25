@@ -38,8 +38,8 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
     print(df_buy)
 
     # Store today's optimized portfolio
-    buy_symbols = df_buy['symbol'].tolist()
-    buy_qty = df_buy['qty'].tolist()
+    optimized_symbols = df_buy['symbol'].tolist()
+    optimized_qty = df_buy['qty'].tolist()
     close_prices = df_buy['close'].tolist()
 
     # # Store what needs to be bought/sold
@@ -48,19 +48,16 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
     sell_amounts = {}
 
     # Store the desired quantities and close prices for each symbol
-    for i in range(0, len(buy_symbols)):
-        symbol = buy_symbols[i]
-        qty = buy_qty[i]
+    print('\nTODAY\'S OPTIMIZED PORTFOLIO CALLS FOR:')
+    for i in range(0, len(optimized_symbols)):
+        symbol = optimized_symbols[i]
+        qty = optimized_qty[i]
+        print(f'{symbol}: {qty}')
         if qty <= 0:
             qty = 1
         buy_amounts[symbol] = qty
         buy_prices[symbol] = close_prices[i]
-
-    print('\nTODAY\'S ALGORITHM CALLS FOR:')
-    for symbol in buy_amounts.keys():
-        qty = buy_amounts[symbol]
-        print(f'{symbol}: {qty}')
-
+    
     # Get all current positions
     existing_positions = api.list_positions()
     print('\nCURRENT POSITIONS:')
@@ -71,7 +68,7 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
     for position in existing_positions:
         # If the symbol is in our updated portfolio
         # then we still need to hold some shares
-        if position.symbol in buy_symbols:
+        if position.symbol in optimized_symbols:
             symbol = position.symbol
 
             # Determine how many shares (if any)
@@ -97,22 +94,35 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
         else:
             sell_amounts[position.symbol] = int(position.qty)
 
-    if len(buy_amounts.keys()) > 0: print('\nBUYING:')
+    alert = f'**{today_str} Daily Trade Alert**\n'
+
+    if len(buy_amounts.keys()) > 0:
+        print('\nBUYING:')
+        alert += '\n**BUY**'
     for symbol in buy_amounts.keys():
         qty = buy_amounts[symbol]
+        alert += f'\n{symbol}: {qty}'
         print(f'{symbol}: {qty}')
 
-    if len(sell_amounts.keys()) > 0: print('\nSELLING:')
+    if len(sell_amounts.keys()) > 0:
+        print('\nSELLING:')
+        alert += '\n\n**SELL**'
     for symbol in sell_amounts.keys():
         qty = sell_amounts[symbol]
+        alert += f'\n{symbol}: {qty}'
         print(f'{symbol}: {qty}')
+    
+    # Make sure the market is open
+    now = datetime.now()
+    while now.hour < 9 and now.minute < 30:
+        time.sleep(60)
+        now = datetime.now()
 
     # Generate buy orders
     for symbol in buy_amounts.keys():
         qty = buy_amounts[symbol]
         price = buy_prices[symbol]
         print(f'Submitting buy order for {qty} shares of {symbol}')
-        discord_webhook.notify_trade(f'Submitting buy order for {qty} shares of {symbol}')
         api.submit_order(
             symbol=symbol, qty=str(qty), side='buy',
             type='limit', limit_price=str(price), time_in_force='day'
@@ -122,7 +132,6 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
     for symbol in sell_amounts.keys():
         qty = sell_amounts[symbol]
         print(f'Submitting sell order for {qty} shares of {symbol}')
-        discord_webhook.notify_trade(f'Submitting sell order for {qty} shares of {symbol}')
         api.submit_order(
             symbol=symbol, qty=str(qty), side='sell',
             type='market', time_in_force='day'
@@ -148,8 +157,13 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
                         type='market', time_in_force='day'
                     )
                 except Exception as e:
-                    print('Error with order:', e)
+                    print(f'Error with {symbol} order:', e)
+                    discord_webhook.send_error(f'Error trying to fill {symbol}:', e)
         else:
             complete = True
+    
+    # Send trade alert
+    discord_webhook._send_messsage(alert)
+
 else:
-    discord_webhook.notify_trade('Arg! The market is not open today.')
+    discord_webhook.notify_info('Arg! The market is not open today.')

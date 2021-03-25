@@ -46,11 +46,11 @@ def select_momentum_stocks():
         annualized_slope = (np.power(np.exp(regress[0]), 252) -1) * 100
         return annualized_slope * (regress[2] ** 2)
     
-    def trend_score(ts):
-        array = ts.to_numpy()
-        result = np.polyfit(range(0, len(array)), array, 1)
-        slope = result[-2]
-        return float(slope)
+    def bullish_score(ts):
+        if ts[2] > ts[1] > ts[0]:
+            return 1
+        else:
+            return 0
 
     c = 0
     for symbol in data.keys():
@@ -74,9 +74,10 @@ def select_momentum_stocks():
                 min_periods=momentum_window_small
             ).apply(momentum_score).reset_index(level=0, drop=True)
 
-            # 3-day price trend score
-            df['3d_slope'] = df.groupby('symbol')['close'].rolling(3, min_periods=3)\
-                .apply(trend_score).reset_index(level=0, drop=True)
+            # 3-day bullish detection score
+            df['3d_trend'] = df.groupby('symbol')['close'].rolling(3, min_periods=3)\
+                .apply(bullish_score).reset_index(level=0, drop=True)
+
             all_df = all_df.append(df)
         c += 1
         if c % 100 == 0:
@@ -87,7 +88,7 @@ def select_momentum_stocks():
     portfolio_size = 10
     top_momentum_stocks = all_df.loc[all_df.index == all_df.index.max()]
     top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['momentum_20'] > 0]
-    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['3d_slope'] > 0]
+    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['3d_trend'] > 0]
     top_momentum_stocks = top_momentum_stocks.sort_values(by='momentum_125', ascending=False).head(portfolio_size)
 
     universe = top_momentum_stocks['symbol'].tolist()
