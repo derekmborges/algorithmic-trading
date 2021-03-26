@@ -23,16 +23,36 @@ alert = '**End of Week Liquidations**\n\n**Sell**\n'
 for position in positions:
     symbol = position.symbol
     qty = position.qty
+    price = position.current_price
     api.submit_order(
-        symbol=symbol, qty=str(qty), side='sell',
-        type='market', time_in_force='day'
+        symbol=symbol, qty=str(qty), side='buy',
+        type='limit', limit_price=str(price), time_in_force='day'
     )
     alert += f'{symbol}: {qty}\n'
 
 discord_webhook._send_messsage(alert)
 
 print('Waiting for orders to fill...')
-time.sleep(60)
 positions = api.list_positions()
-assert not positions
+while positions:
+    time.sleep(60)
+    open_orders = api.list_orders(status='open')
+    if open_orders:
+        for order in open_orders:
+            qty = order.qty
+            symbol = order.symbol
+            try:
+                print(f'Cancelling limit order for {qty} shares of {symbol}')
+                api.cancel_order(order.id)
+                # submit new market order
+                print(f'Submitting market order for {qty} shares of {symbol}')
+                api.submit_order(
+                    symbol=symbol, qty=str(qty), side='buy',
+                    type='market', time_in_force='day'
+                )
+            except Exception as e:
+                print(f'Error with {symbol} order:', e)
+                discord_webhook.send_error(f'Error trying to sell {symbol}:', e)
+    positions = api.list_positions()
+
 print('Success.')
