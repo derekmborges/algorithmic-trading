@@ -66,8 +66,9 @@ print('WORST: {}%'.format('%.2f' % worst_loss))
 print('AVG:   {}%'.format('%.2f' % average_profit))
 print('TOTAL: {}%'.format('%.2f' % total_profit))
 # Notify Discord
-alert += '\nBEST:  {}%'.format('%.2f' % max_profit)
-alert += '\nWORST: {}%'.format('%.2f' % worst_loss)
-alert += '\nAVG:   {}%'.format('%.2f' % average_profit)
-alert += '\nTOTAL: {}%'.format('%.2f' % total_profit)
+alert += '\n*Summary*'
+alert += '\nBest:  {}%'.format('%.2f' % max_profit)
+alert += '\nWorst: {}%'.format('%.2f' % worst_loss)
+alert += '\nAvg:   {}%'.format('%.2f' % average_profit)
+alert += '\nTotal: {}%'.format('%.2f' % total_profit)
 discord_webhook._send_messsage(alert)

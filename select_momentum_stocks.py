@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from alpaca_trade_api import REST
+import detect_pattern as pattern
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt import risk_models
 from pypfopt import expected_returns
@@ -45,12 +46,6 @@ def select_momentum_stocks():
         regress = stats.linregress(x, log_ts)
         annualized_slope = (np.power(np.exp(regress[0]), 252) -1) * 100
         return annualized_slope * (regress[2] ** 2)
-    
-    def bullish_score(ts):
-        if ts[2] > ts[1] > ts[0]:
-            return 1
-        else:
-            return 0
 
     c = 0
     for symbol in data.keys():
@@ -74,9 +69,13 @@ def select_momentum_stocks():
                 min_periods=momentum_window_small
             ).apply(momentum_score).reset_index(level=0, drop=True)
 
-            # 3-day bullish detection score
-            df['3d_trend'] = df.groupby('symbol')['close'].rolling(3, min_periods=3)\
-                .apply(bullish_score).reset_index(level=0, drop=True)
+            # bullish pattern detection
+            df = pd.DataFrame(df)
+            recent_df = df.tail(3)
+            bullish = [''] * (len(df))
+            p = pattern.detect_bullish_patterns(recent_df)
+            bullish[len(bullish) - 1] = p
+            df['bullish'] = bullish
 
             all_df = all_df.append(df)
         c += 1
@@ -87,8 +86,8 @@ def select_momentum_stocks():
 
     portfolio_size = 10
     top_momentum_stocks = all_df.loc[all_df.index == all_df.index.max()]
-    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['momentum_20'] > 0]
-    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['3d_trend'] > 0]
+    # top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['momentum_30'] > 0]
+    top_momentum_stocks = top_momentum_stocks[top_momentum_stocks['bullish'] != '']
     top_momentum_stocks = top_momentum_stocks.sort_values(by='momentum_125', ascending=False).head(portfolio_size)
 
     universe = top_momentum_stocks['symbol'].tolist()
@@ -110,13 +109,14 @@ def select_momentum_stocks():
     weights = ef.max_sharpe()
     cleaned_weights = ef.clean_weights()
 
-    portfolio_value = float(api.get_account().portfolio_value) * 0.95
+    account = api.get_account()
+    total_value = (float(account.portfolio_value) + float(account.cash)) * 0.95
     # Allocate
     latest_prices = get_latest_prices(df_universe)
     da = DiscreteAllocation(
         cleaned_weights,
         latest_prices,
-        total_portfolio_value=portfolio_value
+        total_portfolio_value=total_value
     )
 
     allocation = da.lp_portfolio()[0]
