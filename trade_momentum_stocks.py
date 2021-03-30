@@ -114,7 +114,7 @@ if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
     
     # Make sure the market is open
     now = datetime.now()
-    while now.hour < 9 and now.minute < 30:
+    while now.hour < 9 or now.minute < 30:
         time.sleep(60)
         now = datetime.now()
 
