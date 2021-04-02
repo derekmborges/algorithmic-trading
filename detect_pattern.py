@@ -1,25 +1,45 @@
+from btalib.indicators.obv import obv
+import pandas as pd
 from pandas.core.frame import DataFrame
 from candle import Candle
 
 def detect_bullish_patterns(df: DataFrame):
     """
-    Finds all bullish candlestick patterns in a DataFrame with 3 daily candlesticks.
+    Finds all bullish candlestick patterns in a DataFrame with daily candlesticks.
 
     :param df: DataFrame with 3 days of candlestick data
     """
     assert type(df) == DataFrame
-    assert len(df) == 3
+    assert len(df) >= 3
+    
+    symbol = df['symbol'][0]
 
-    candle1 = Candle(df.iloc[0])
-    candle2 = Candle(df.iloc[1])
-    candle3 = Candle(df.iloc[2])
+    recent_candle1 = Candle(df.iloc[len(df) - 3])
+    recent_candle2 = Candle(df.iloc[len(df) - 2])
+    recent_candle3 = Candle(df.iloc[len(df) - 1])
 
-    if is_bullish_engulfing(candle1, candle2, candle3):
-        return 'bullish_engulfing'
-    elif is_three_white_knights(candle1, candle2, candle3):
-        return 'three_white_knights'
-    elif is_morning_star(candle1, candle2, candle3):
-        return 'morning_star'
+    pattern = ''
+
+    # Search for each type of pattern
+    if is_bullish_engulfing(recent_candle1, recent_candle2, recent_candle3):
+        pattern = 'bullish_engulfing'
+    elif is_three_white_knights(recent_candle1, recent_candle2, recent_candle3):
+        pattern = 'three_white_knights'
+    elif is_morning_star(recent_candle1, recent_candle2, recent_candle3):
+        pattern = 'morning_star'
+    
+    # Confirm a bullish candlestick pattern with a bullish OBV
+    # To prove it's not a false-positive
+    if pattern != '':
+        obv_df = obv(df).df
+        obv_df['obv_ema'] = obv_df['obv'].ewm(span=20).mean()
+        
+        # Check to see if the OBV crossed above the EMA signal
+        recent_obv_df = pd.DataFrame(obv_df.tail(2))
+        if recent_obv_df['obv'][0] <= recent_obv_df['obv_ema'][0] \
+            and recent_obv_df['obv'][1] > recent_obv_df['obv_ema'][1]:
+            # print(f'{symbol} crossed the OBV EMA today')
+            return pattern
 
     return ''
 
