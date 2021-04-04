@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from time import time
+from typing import Dict
 from btalib.indicators.cci import cci
 from btalib.indicators.obv import obv
 from btalib.indicators.rsi import rsi
@@ -13,7 +16,7 @@ def chunks(l, n):
     n = max(1, n)
     return (l[i:i+n] for i in range(0, len(l), n))
 
-def select_swing_stocks():
+def select_swing_stocks(date: datetime, position_data: Dict, portfolio_amount: float):
     # Get Alpaca API key and secret
     storage_client = storage.Client()
     bucket = storage_client.get_bucket('derek-algo-trading-bucket')
@@ -28,25 +31,24 @@ def select_swing_stocks():
     assets = api.list_assets('active')
     symbols = [asset.symbol for asset in assets if asset.tradable]
 
-    # Get all currently held positions
-    positions = api.list_positions()
-    if positions:
+    # Display currently held positions
+    if position_data:
         print('Current positions:')
-    position_symbols = [position.symbol for position in positions]
-    position_data = {}
-    for position in positions:
-        current_percent = (float(position.current_price) - float(position.avg_entry_price)) \
-            / float(position.avg_entry_price) * 100
-        print('{}: {}%'.format(position.symbol, '%.2f' % current_percent))
-        position_data[position.symbol] = position
+    position_symbols = list(position_data.keys())
+    for symbol in position_symbols:
+        current_price = float(position_data[symbol]['current_price'])
+        entry_price = float(position_data[symbol]['avg_entry_price'])
+        current_percent = (current_price - entry_price) / entry_price * 100
+        print('{}: {}%'.format(symbol, '%.2f' % current_percent))
     print()
 
-    # Get past 50 days data for all stocks
+    # Get past 1000 days data for all stocks
     data = {}
     symbols_chunked = list(chunks(list(set(symbols)), 200))
+    previous_day = datetime.isoformat(pd.Timestamp(date - timedelta(days=1)))
     for symbol_group in symbols_chunked:
         print(f'Retrieving {len(symbol_group)} symbol data')
-        data_group = api.get_barset(','.join(symbol_group), '1D', limit=1000).df
+        data_group = api.get_barset(','.join(symbol_group), '1D', end=previous_day, limit=1000).df
         for symbol in symbol_group:
             data[symbol] = data_group[symbol]
     
@@ -60,23 +62,19 @@ def select_swing_stocks():
         df = df.loc[df['close'] > 0]
         if symbol not in position_symbols and len(df) == 1000:
             df['symbol'] = symbol
-
-            # bullish pattern detection
-            # bullish = [''] * len(df)
-            # bullish[len(bullish) - 1] = pattern.detect_bullish_patterns(df)
             df['bullish'] = pattern.detect_bullish_patterns(df)
             buy_df = buy_df.append(df.loc[df.index == df.index.max()])
         
         elif symbol in position_symbols:
             print(f'\nCurrently holding {symbol}:')
             df['symbol'] = symbol
-            df['qty'] = int(position_data[symbol].qty)
-            df['market_value'] = float(position_data[symbol].market_value)
+            df['qty'] = int(position_data[symbol]['qty'])
+            df['market_value'] = float(position_data[symbol]['market_value'])
             
             latest_rsi = rsi(df).df.tail(1)['rsi'][0]
             latest_cci = cci(df).df.tail(1)['cci'][0]
-            purchase_price = float(position_data[symbol].avg_entry_price)
-            latest_price = float(position_data[symbol].current_price)
+            purchase_price = float(position_data[symbol]['avg_entry_price'])
+            latest_price = float(position_data[symbol]['current_price'])
             df['purchase_price'] = purchase_price
             df['latest_price'] = latest_price
 
@@ -106,6 +104,12 @@ def select_swing_stocks():
                     if slope > 0:
                         print(f'OBV is increasing with a slope of {slope}: HOLD')
                         hold_df = hold_df.append(df.loc[df.index == df.index.max()])
+                    else:
+                        print('OBV is above EMA but not increasing: SELL')
+                        sell_df = sell_df.append(df.loc[df.index == df.index.max()])
+                else:
+                    print('OBV is no longer above EMA: SELL')
+                    sell_df = sell_df.append(df.loc[df.index == df.index.max()])
 
             print()
 
@@ -117,14 +121,14 @@ def select_swing_stocks():
     # END SCREENING SECTION
     
     # Consolidate results
-    print('DECISION:\n')
+    # print('DECISION:\n')
     hold_stocks = hold_df.loc[hold_df.index == hold_df.index.max()]
-    if not hold_stocks.empty:
-        print(f'Hold {len(hold_stocks)}:\n' + '\n'.join(hold_stocks['symbol'].tolist()) + '\n')
+    # if not hold_stocks.empty:
+        # print(f'Hold {len(hold_stocks)}:\n' + '\n'.join(hold_stocks['symbol'].tolist()) + '\n')
     
     sell_stocks = sell_df.loc[sell_df.index == sell_df.index.max()]
-    if not sell_stocks.empty:
-        print(f'Sell {len(sell_stocks)}:\n' + '\n'.join(sell_stocks['symbol'].tolist()) + '\n')
+    # if not sell_stocks.empty:
+        # print(f'Sell {len(sell_stocks)}:\n' + '\n'.join(sell_stocks['symbol'].tolist()) + '\n')
 
     portfolio_size = 20
     purchase_size = portfolio_size - len(hold_stocks)
@@ -135,10 +139,8 @@ def select_swing_stocks():
         buy_stocks = buy_df.loc[buy_df.index == buy_df.index.max()]
         buy_stocks = buy_stocks[buy_stocks['bullish'] != '']
         buy_stocks = buy_stocks.sort_values(by='volume', ascending=False).head(purchase_size)
-
-        account = api.get_account()
-        holding_value = hold_stocks['market_value'].tolist().sum() if not hold_stocks.empty else 0.0
-        available_funds = (float(account.portfolio_value) + float(account.cash) - holding_value) * 0.95
+        holding_value = sum(hold_stocks['market_value'].tolist()) if not hold_stocks.empty else 0.0
+        available_funds = portfolio_amount - holding_value
         print(f'Available funds to buy: ${available_funds}')
         
         # For now this will create equal-weight positions
@@ -155,8 +157,6 @@ def select_swing_stocks():
         
         buy_stocks['qty'] = buy_qty
         buy_stocks['market_value'] = buy_stocks['close'] * buy_stocks['qty']
-        print(f'Buy {len(buy_stocks)}:')
-        print(buy_stocks)
     
     else:
         print('There is no room to buy.')

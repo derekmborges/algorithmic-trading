@@ -25,7 +25,7 @@ for position in positions:
     qty = position.qty
     price = position.current_price
     api.submit_order(
-        symbol=symbol, qty=str(qty), side='buy',
+        symbol=symbol, qty=str(qty), side='sell',
         type='limit', limit_price=str(price), time_in_force='day'
     )
     alert += f'{symbol}: {qty}\n'
@@ -47,7 +47,7 @@ while positions:
                 # submit new market order
                 print(f'Submitting market order for {qty} shares of {symbol}')
                 api.submit_order(
-                    symbol=symbol, qty=str(qty), side='buy',
+                    symbol=symbol, qty=str(qty), side='sell',
                     type='market', time_in_force='day'
                 )
             except Exception as e:
