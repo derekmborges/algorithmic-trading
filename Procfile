@@ -1,1 +1,1 @@
-worker: python overnight_hold.py
+worker: python overnight_hold.py run
