@@ -189,8 +189,6 @@ def get_value_of_assets(api, shares_bought, prices_bought, on_date):
 
 
 def run_live(api):
-    cycle = 0 # Only used to print a "waiting" message every few minutes.
-
     # See if we've already bought or sold positions today. If so, we don't want to do it again.
     # Useful in case the script is restarted during market hours.
     bought_today = False
@@ -254,10 +252,7 @@ def run_live(api):
         else:
             bought_today = False
             sold_today = False
-            if cycle % 10 == 0:
-                print("Waiting for next market day...")
         time.sleep(30)
-        cycle+=1
 
 
 
