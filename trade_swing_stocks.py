@@ -31,13 +31,12 @@ except Exception as e:
     print(e)
     print('Market must not be open')
     calendar = None
-# if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
-if calendar:
+if calendar and calendar.date.strftime('%Y-%m-%d') == today_str:
 
     # Select the swing stocks to buy, sell, and hold
     df_buy, df_sell, df_hold = select_swing_stocks()
-
-    alert = f'**Daily Swing Trade Test**\n*If the market was open*\n'
+    
+    alert = f'**Daily Swing Trade Alert**\n'
 
     # Sell all stocks in DataFrame
     if not df_sell.empty:
@@ -57,10 +56,10 @@ if calendar:
             )
 
             # Submit limit sell order
-            # api.submit_order(
-            #     symbol=symbol, qty=str(qty), side='sell',
-            #     type='limit', limit_price=str(latest_price), time_in_force='day'
-            # )
+            api.submit_order(
+                symbol=symbol, qty=str(qty), side='sell',
+                type='limit', limit_price=str(latest_price), time_in_force='day'
+            )
     
     # Buy stocks in DataFrame
     if not df_buy.empty:
@@ -74,16 +73,15 @@ if calendar:
             alert += f'\n{symbol}: {qty}'
 
             # Submit limit sell order
-            # api.submit_order(
-            #     symbol=symbol, qty=str(qty), side='buy',
-            #     type='limit', limit_price=str(price), time_in_force='day'
-            # )
+            api.submit_order(
+                symbol=symbol, qty=str(qty), side='buy',
+                type='limit', limit_price=str(price), time_in_force='day'
+            )
 
 
     # Wait 1 minute and see if any orders were not fulfilled
     # If the limit price was not fulfilled, replace with market order
-    # complete = False
-    complete = True
+    complete = False
     while not complete:
         time.sleep(60)
         open_orders = api.list_orders(status='open')
@@ -97,6 +95,8 @@ if calendar:
                     api.cancel_order(order.id)
                     # submit new market order
                     print(f'Resubmitting {side} order for {qty} shares of {symbol}')
+
+                    api.get_last_trade(symbol)
                     api.submit_order(
                         symbol=symbol, qty=str(qty), side=side,
                         type='market', time_in_force='day'

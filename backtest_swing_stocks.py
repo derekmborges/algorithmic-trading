@@ -11,7 +11,6 @@ import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from alpaca_trade_api import REST
 from select_historic_swing_stocks import select_swing_stocks
-import discord_webhook
 
 # Get Alpaca API key and secret
 storage_client = storage.Client()
@@ -25,7 +24,7 @@ api = REST(api_key, secret_key, base_url, 'v2')
 
 nyc = timezone('America/New_York')
 
-def get_open_price(date: datetime, symbol: Text) -> float:
+def get_open_price(date: datetime, symbol: Text):
     today = datetime.isoformat(pd.Timestamp(date))
     bar = api.get_barset(symbol, '1D', start=today, end=today, limit=1).df
     return bar[symbol]['open'][bar.index.max()]
@@ -39,7 +38,7 @@ def buy_stock(date: datetime, symbol: Text, qty: int):
         'market_value': str(round(buy_price * qty, 2))
     }
 
-def sell_stock(date: datetime, symbol: Text) -> float:
+def sell_stock(date: datetime, symbol: Text):
     sell_price = get_open_price(date, symbol)
     entry_price = float(position_data[symbol]['avg_entry_price'])
     del position_data[symbol]
@@ -71,11 +70,22 @@ if start_date and end_date:
     day_results = {}
 
     # Create a list of dates in between start and end (inclusive)
-    dates = pd.date_range(start=start_date, end=end_date, freq='D', tz=nyc)
+    dates = pd.date_range(start=start_date, end=end_date, freq='B', tz=nyc)
 
     # Trade each day
     for date in dates:
         print(f'------------------ {date.strftime("%Y-%m-%d")} ------------------')
+
+        # Check if market is open on that date
+        calendar = api.get_calendar(
+            start=datetime.isoformat(pd.Timestamp(date)),
+            end=datetime.isoformat(pd.Timestamp(date))
+        )[0]
+        if calendar.date.strftime("%Y-%m-%d") != date.strftime("%Y-%m-%d"):
+            print('Market was not open')
+            print(calendar.date.strftime("%Y-%m-%d"))
+            print(date.strftime("%Y-%m-%d"))
+            continue
 
         # Must update position prices before going into the day
         # Something that Alpaca handles for you
@@ -112,7 +122,7 @@ if start_date and end_date:
                     '%.1f' % gain
                 ))
                 if date in day_results.keys():
-                    day_results[date].append(date)
+                    day_results[date].append(gain)
                 else:
                     day_results[date] = [ gain ]
 
@@ -140,3 +150,4 @@ if start_date and end_date:
             print('Total: {}%'.format('%.2f' % (sum(gains))))
         else:
             print('None')
+        print()

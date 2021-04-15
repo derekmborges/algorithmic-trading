@@ -34,20 +34,21 @@ def select_swing_stocks(date: datetime, position_data: Dict, portfolio_amount: f
     # Display currently held positions
     if position_data:
         print('Current positions:')
+    else:
+        print('No current positions')
     position_symbols = list(position_data.keys())
     for symbol in position_symbols:
         current_price = float(position_data[symbol]['current_price'])
         entry_price = float(position_data[symbol]['avg_entry_price'])
         current_percent = (current_price - entry_price) / entry_price * 100
         print('{}: {}%'.format(symbol, '%.2f' % current_percent))
-    print()
 
     # Get past 1000 days data for all stocks
     data = {}
+    print(f'Retrieving {len(symbols)} symbol data...')
     symbols_chunked = list(chunks(list(set(symbols)), 200))
     previous_day = datetime.isoformat(pd.Timestamp(date - timedelta(days=1)))
     for symbol_group in symbols_chunked:
-        print(f'Retrieving {len(symbol_group)} symbol data')
         data_group = api.get_barset(','.join(symbol_group), '1D', end=previous_day, limit=1000).df
         for symbol in symbol_group:
             data[symbol] = data_group[symbol]
@@ -56,41 +57,43 @@ def select_swing_stocks(date: datetime, position_data: Dict, portfolio_amount: f
     sell_df = pd.DataFrame()
     hold_df = pd.DataFrame()
 
-    c = 0
+    # c = 0
+    print('Processing daily bars for all stocks...')
     for symbol in data.keys():
         df = pd.DataFrame(data[symbol])
         df = df.loc[df['close'] > 0]
-        if symbol not in position_symbols and len(df) == 1000:
+        if symbol not in position_symbols and len(df) >= 1000:
             df['symbol'] = symbol
             df['bullish'] = pattern.detect_bullish_patterns(df)
             buy_df = buy_df.append(df.loc[df.index == df.index.max()])
-        
+
         elif symbol in position_symbols:
-            print(f'\nCurrently holding {symbol}:')
             df['symbol'] = symbol
             df['qty'] = int(position_data[symbol]['qty'])
             df['market_value'] = float(position_data[symbol]['market_value'])
-            
+
             latest_rsi = rsi(df).df.tail(1)['rsi'][0]
             latest_cci = cci(df).df.tail(1)['cci'][0]
             purchase_price = float(position_data[symbol]['avg_entry_price'])
             latest_price = float(position_data[symbol]['current_price'])
             df['purchase_price'] = purchase_price
             df['latest_price'] = latest_price
+            change_pct = (latest_price - purchase_price) / purchase_price * 100
+            print(f'\nHolding {symbol}: {round(change_pct, 2)}%')
 
-            # If it has dropped below the entry price, GET IT OUT
-            if latest_price < purchase_price:
-                print(f'Price ${latest_price} is below entry ${purchase_price}: SELL')
+            # If it has dropped below the stop loss percentage, GET IT OUT
+            if change_pct <= -3:
+                print(f'Price is below stop loss: SELL')
                 sell_df = sell_df.append(df.loc[df.index == df.index.max()])
-            # Or if the RSI or CCI are too high, GET IT OUT
-            elif latest_rsi >= 70 or latest_cci >= 100:
-                print(f'Overbought, RSI={latest_rsi}, CCI={latest_cci}: SELL')
+            
+            elif change_pct < 0 and (latest_rsi >= 70 or latest_cci >= 100):
+                print(f'Overbought, RSI={round(latest_rsi, 0)}, CCI={round(latest_cci, 0)}: SELL')
                 sell_df = sell_df.append(df.loc[df.index == df.index.max()])
 
             # If price is at/above entry
             # Check if the swing is still swinging
-            elif latest_price >= purchase_price:
-                print(f'Price ${latest_price} is at/above entry ${purchase_price}')
+            else:
+                print(f'Price ${latest_price} is near/above entry ${purchase_price}')
                 obv_df = obv(df).df
                 obv_df['obv_ema'] = obv_df['obv'].ewm(span=20).mean()
 
@@ -113,33 +116,27 @@ def select_swing_stocks(date: datetime, position_data: Dict, portfolio_amount: f
 
             print()
 
-        c += 1
-        if c % 100 == 0:
-            print(f'{c}/{len(data.keys())}')
-    print(f'{c}/{len(data.keys())}\n')
+        # c += 1
+    #     if c % 100 == 0:
+    #         print(f'{c}/{len(data.keys())}')
+    # print(f'{c}/{len(data.keys())}\n')
     
     # END SCREENING SECTION
     
     # Consolidate results
-    # print('DECISION:\n')
-    hold_stocks = hold_df.loc[hold_df.index == hold_df.index.max()]
-    # if not hold_stocks.empty:
-        # print(f'Hold {len(hold_stocks)}:\n' + '\n'.join(hold_stocks['symbol'].tolist()) + '\n')
-    
-    sell_stocks = sell_df.loc[sell_df.index == sell_df.index.max()]
-    # if not sell_stocks.empty:
-        # print(f'Sell {len(sell_stocks)}:\n' + '\n'.join(sell_stocks['symbol'].tolist()) + '\n')
+    # hold_stocks = hold_df.loc[hold_df.index == hold_df.index.max()]    
+    # sell_stocks = sell_df.loc[sell_df.index == sell_df.index.max()]
 
     portfolio_size = 20
-    purchase_size = portfolio_size - len(hold_stocks)
+    purchase_size = portfolio_size - len(hold_df)
 
     # If there's room in the portfolio to buy more
     if purchase_size > 0:
         print(f'We can purchase {purchase_size} new stocks today.')
-        buy_stocks = buy_df.loc[buy_df.index == buy_df.index.max()]
-        buy_stocks = buy_stocks[buy_stocks['bullish'] != '']
+        # buy_stocks = buy_df.loc[buy_df.index == buy_df.index.max()]
+        buy_stocks = buy_df[buy_df['bullish'] != '']
         buy_stocks = buy_stocks.sort_values(by='volume', ascending=False).head(purchase_size)
-        holding_value = sum(hold_stocks['market_value'].tolist()) if not hold_stocks.empty else 0.0
+        holding_value = sum(hold_df['market_value'].tolist()) if not hold_df.empty else 0.0
         available_funds = portfolio_amount - holding_value
         print(f'Available funds to buy: ${available_funds}')
         
@@ -162,4 +159,4 @@ def select_swing_stocks(date: datetime, position_data: Dict, portfolio_amount: f
         print('There is no room to buy.')
         buy_stocks = pd.DataFrame()
 
-    return (buy_stocks, sell_stocks, hold_stocks)
+    return (buy_stocks, sell_df, hold_df)

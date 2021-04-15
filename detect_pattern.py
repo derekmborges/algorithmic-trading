@@ -2,6 +2,7 @@ from btalib.indicators.obv import obv
 import pandas as pd
 from pandas.core.frame import DataFrame
 from candle import Candle
+from ta.volume import OnBalanceVolumeIndicator, on_balance_volume
 
 def detect_bullish_patterns(df: DataFrame):
     """
