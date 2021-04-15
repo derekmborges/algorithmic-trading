@@ -3,8 +3,6 @@ import pandas as pd
 import statistics
 import sys
 import time
-import os
-from google.cloud import storage
 from datetime import datetime, timedelta
 from pytz import timezone
 
