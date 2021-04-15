@@ -3,6 +3,7 @@ import pandas as pd
 import statistics
 import sys
 import time
+import os
 from google.cloud import storage
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -263,15 +264,7 @@ def run_live(api):
 
 
 if __name__ == '__main__':
-    # Get Alpaca API key and secret
-    storage_client = storage.Client()
-    bucket = storage_client.get_bucket('derek-algo-trading-bucket')
-    blob = bucket.blob('alpaca-api-key.txt')
-    api_key = blob.download_as_text()
-    blob = bucket.blob('alpaca-secret-key.txt')
-    secret_key = blob.download_as_text()
-    base_url = 'https://paper-api.alpaca.markets'
-    api = tradeapi.REST(api_key, secret_key, base_url, 'v2')
+    api = tradeapi.REST()
 
     if len(sys.argv) < 2:
         print('Error: please specify a command; either "run" or "backtest <cash balance> <number of days to test>".')
