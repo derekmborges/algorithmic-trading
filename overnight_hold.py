@@ -5,6 +5,8 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pytz import timezone
+from dotenv import load_dotenv
+load_dotenv()
 
 def chunks(l, n):
     n = max(1, n)
