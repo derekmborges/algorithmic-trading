@@ -1,1 +1,1 @@
-worker: python overnight_hold.py backtest 10000 10
+worker: python overnight_hold.py run
