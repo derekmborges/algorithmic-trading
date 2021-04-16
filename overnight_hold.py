@@ -45,7 +45,7 @@ def get_ratings(symbols, algo_time = None):
     # print(start_date.strftime("%Y-%m-%d"))
     # print(algo_time.strftime("%Y-%m-%d"))
     symbols_batched = list(chunks(list(set(symbols)), batch_size))
-    for symbol_batch in symbols_batched[:1]:
+    for symbol_batch in symbols_batched:
         # Retrieve data for this batch of symbols.
         bars_batch = api.get_barset(','.join(symbol_batch),
                             '1D',
@@ -79,10 +79,10 @@ def get_ratings(symbols, algo_time = None):
                     # Then, compare it to the change in volume since yesterday.
                     volume_change = bars[-1].v - bars[-2].v
                     volume_factor = volume_change / volume_stdev
-                    # Rating = Number of volume standard deviations * momentum.
+                    # Rating = momentum * Number of volume standard deviations.
                     rating = price_change/bars[0].c * volume_factor
                     # print(f'{symbol}: {rating}')
-                    if rating > 0:
+                    if rating > 0 and rating < 2:
                         ratings = ratings.append({
                             'symbol': symbol,
                             'rating': rating,
@@ -113,8 +113,8 @@ def backtest(api, days_to_test, portfolio_amount):
     # This is the collection of stocks that will be used for backtesting.
     # Note: for longer testing windows, this should be replaced with a list
     # of symbols that were active during the time period you are testing.
-    assets = api.list_assets()
-    symbols = [asset.symbol for asset in assets]
+    assets = api.list_assets('active')
+    symbols = [asset.symbol for asset in assets if asset.tradable]
     # symbols = ['AAPL','MSFT','KO','WMT','TSLA']
     print(f'Total symbols: {len(symbols)}')
 
@@ -185,7 +185,7 @@ def get_value_of_assets(api, shares_bought, prices_bought, on_date):
             # print(f'{symbol}: {bars_group[symbol][0].o}')
             total_value += shares_bought[symbol] * bars_group[symbol][0].o
         else:
-            # print(f'{symbol} data not found. Using entry price')
+            print(f'{symbol} data not found. Using entry price')
             total_value += shares_bought[symbol] * prices_bought[symbol]
     return total_value
 
@@ -230,7 +230,7 @@ def run_live(api):
                     print('Buying positions...')
                     portfolio_cash = float(api.get_account().cash)
                     assets = api.list_assets()
-                    symbols = [asset.symbol for asset in assets]
+                    symbols = [asset.symbol for asset in assets if asset.tradable]
                     ratings = get_ratings(symbols, None)
                     shares_to_buy = get_shares_to_buy(ratings, portfolio_cash)
                     for symbol in shares_to_buy:
