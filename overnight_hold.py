@@ -62,7 +62,7 @@ def get_ratings(symbols, algo_time = None):
                     timezone('EST')
                 )
                 if algo_time and (algo_time - latest_bar).days > 1:
-                    print(f'The latest bar is too far away: {(algo_time - latest_bar).days} days')
+                    # print(f'The latest bar is too far away: {(algo_time - latest_bar).days} days')
                     continue
 
                 # Now, if the stock is within our target range, rate it.
@@ -185,7 +185,7 @@ def get_value_of_assets(api, shares_bought, prices_bought, on_date):
             # print(f'{symbol}: {bars_group[symbol][0].o}')
             total_value += shares_bought[symbol] * bars_group[symbol][0].o
         else:
-            print(f'{symbol} data not found. Using entry price')
+            # print(f'{symbol} data not found. Using entry price')
             total_value += shares_bought[symbol] * prices_bought[symbol]
     return total_value
 
@@ -270,7 +270,7 @@ if __name__ == '__main__':
             testing_days = int(sys.argv[3])
             portfolio_value = backtest(api, testing_days, start_value)
             portfolio_change = (portfolio_value - start_value) / start_value
-            print('Portfolio change: {:.4f}%'.format(portfolio_change*100))
+            print('Portfolio change over {} days: {:.4f}%'.format(testing_days, portfolio_change*100))
         elif sys.argv[1] == 'run':
             run_live(api)
         else:
