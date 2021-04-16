@@ -8,3 +8,4 @@ tzdata==2021.1
 six==1.15.0
 alpaca-trade-api>=0.25
 discord.py==1.6.0
+python-dotenv==0.17.0
