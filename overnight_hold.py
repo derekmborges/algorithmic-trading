@@ -15,8 +15,9 @@ def chunks(l, n):
 stocks_to_hold = 150 # Max 200
 
 # Only stocks with prices in this range will be considered.
-max_stock_price = 26
-min_stock_price = 6
+# Currently $5 - $20 works the best
+min_stock_price = 5
+max_stock_price = 20
 
 # API datetimes will match this format. (-04:00 represents the market's TZ.)
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
@@ -129,13 +130,33 @@ def backtest(api, days_to_test, portfolio_amount):
     )
     shares = {}
     entry_prices = {}
+    results = {
+        '1-4.99': [],
+        '5-9.99': [],
+        '10-14.99': [],
+        '15-19.99': [],
+        '20-24.99': [],
+        '25-30': []
+    }
     cal_index = 0
     for calendar in calendars:
         # See how much we got back by holding the last day's picks overnight
-        portfolio_amount += get_value_of_assets(api, shares, entry_prices, calendar.date)
+        new_amount, profits = get_value_of_assets(api, shares, entry_prices, calendar.date)
+        portfolio_amount += new_amount
         print('Portfolio value on {}: ${:0.2f}'.format(calendar.date.strftime(
             '%Y-%m-%d'), portfolio_amount)
         )
+
+        # Update the price range's results
+        for symbol in profits:
+            price = entry_prices[symbol]
+            for range in results:
+                range_arr = str(range).split('-')
+                lower = float(range_arr[0])
+                upper = float(range_arr[1])
+                if price >= lower and price <= upper:
+                    results[range].append(profits[symbol])
+                    break
 
         if cal_index == len(calendars) - 1:
             # We've reached the end of the backtesting window.
@@ -162,6 +183,31 @@ def backtest(api, days_to_test, portfolio_amount):
         sp500_change*100)
     )
 
+    print('\nAverage results per price:')
+    for range in results:
+        print('{}: {:.4f}%'.format(
+            range,
+            statistics.mean(results[range]) if results[range] else 0
+        ))
+    print('\nBest results per price:')
+    for range in results:
+        print('{}: {:.4f}%'.format(
+            range,
+            max(results[range]) if results[range] else 0
+        ))
+    print('\nWorst results per price:')
+    for range in results:
+        print('{}: {:.4f}%'.format(
+            range,
+            min(results[range]) if results[range] else 0
+        ))
+    print('\nTotal results per price:')
+    for range in results:
+        print('{}: {:.4f}%'.format(
+            range,
+            sum(results[range]) if results[range] else 0
+        ))
+    print()
     return portfolio_amount
 
 
@@ -169,9 +215,10 @@ def backtest(api, days_to_test, portfolio_amount):
 # worth the day after we bought it.
 def get_value_of_assets(api, shares_bought, prices_bought, on_date):
     if len(shares_bought.keys()) == 0:
-        return 0
+        return (0, {})
 
     total_value = 0
+    profits = {}
     formatted_date = api_format(on_date)
 
     symbols_bought = list(shares_bought.keys())
@@ -184,10 +231,12 @@ def get_value_of_assets(api, shares_bought, prices_bought, on_date):
         if len(bars_group[symbol]) >= 1:
             # print(f'{symbol}: {bars_group[symbol][0].o}')
             total_value += shares_bought[symbol] * bars_group[symbol][0].o
+            profits[symbol] = (bars_group[symbol][0].o - prices_bought[symbol]) / prices_bought[symbol] * 100
         else:
             print(f'{symbol} data not found. Using entry price')
             total_value += shares_bought[symbol] * prices_bought[symbol]
-    return total_value
+            profits[symbol] = 0.0
+    return (total_value, profits)
 
 
 def run_live(api):
