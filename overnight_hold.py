@@ -300,9 +300,6 @@ def run_live(api):
                     print('Liquidating positions.')
                     api.close_all_positions()
                 sold_today = True
-        else:
-            bought_today = False
-            sold_today = False
         time.sleep(30)
 
 
