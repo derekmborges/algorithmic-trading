@@ -1,20 +1,11 @@
 from datetime import datetime, timedelta
-from google.cloud import storage
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from alpaca_trade_api import REST
 import discord_webhook
 import statistics as stats
 
-# Get Alpaca API key and secret
-storage_client = storage.Client()
-bucket = storage_client.get_bucket('derek-algo-trading-bucket')
-blob = bucket.blob('alpaca-api-key.txt')
-api_key = blob.download_as_text()
-blob = bucket.blob('alpaca-secret-key.txt')
-secret_key = blob.download_as_text()
-base_url = 'https://paper-api.alpaca.markets'
-api = REST(api_key, secret_key, base_url, 'v2')
+api = REST()
 
 # Retrieve all trade activities for the week
 today = datetime.today()

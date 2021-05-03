@@ -12,7 +12,7 @@ def chunks(l, n):
     n = max(1, n)
     return (l[i:i+n] for i in range(0, len(l), n))
 
-stocks_to_hold = 150 # Max 200
+stocks_to_hold = 75 # Max 200
 
 # Only stocks with prices in this range will be considered.
 # Currently $5 - $20 works the best
@@ -130,14 +130,23 @@ def backtest(api, days_to_test, portfolio_amount):
     )
     shares = {}
     entry_prices = {}
-    results = {
-        '1-4.99': [],
-        '5-9.99': [],
-        '10-14.99': [],
-        '15-19.99': [],
-        '20-24.99': [],
-        '25-30': []
-    }
+
+    # Build results dictionary
+    results = {}
+    num_ranges = 5
+    range_width = int((max_stock_price - min_stock_price) / num_ranges)
+    while range_width == 0:
+        num_ranges -= 1
+        range_width = int((max_stock_price - min_stock_price) / num_ranges)
+
+    for price in range(min_stock_price, max_stock_price, range_width):
+        lower_range = int(price)
+        upper_range = int(price + range_width)
+        if upper_range > max_stock_price:
+            upper_range = max_stock_price
+        r = f'{lower_range}-{upper_range}'
+        results[r] = []
+
     cal_index = 0
     for calendar in calendars:
         # See how much we got back by holding the last day's picks overnight
@@ -150,17 +159,20 @@ def backtest(api, days_to_test, portfolio_amount):
         # Update the price range's results
         for symbol in profits:
             price = entry_prices[symbol]
-            for range in results:
-                range_arr = str(range).split('-')
+            for range_str in results:
+                range_arr = str(range_str).split('-')
                 lower = float(range_arr[0])
                 upper = float(range_arr[1])
                 if price >= lower and price <= upper:
-                    results[range].append(profits[symbol])
+                    results[range_str].append(profits[symbol])
                     break
 
         if cal_index == len(calendars) - 1:
             # We've reached the end of the backtesting window.
             break
+
+        # Reset the entry prices
+        entry_prices = {}
 
         # Get the ratings for a particular day
         ratings = get_ratings(symbols, timezone('EST').localize(calendar.date))
@@ -184,28 +196,28 @@ def backtest(api, days_to_test, portfolio_amount):
     )
 
     print('\nAverage results per price:')
-    for range in results:
+    for price_range in results:
         print('{}: {:.4f}%'.format(
-            range,
-            statistics.mean(results[range]) if results[range] else 0
+            price_range,
+            statistics.mean(results[price_range]) if results[price_range] else 0
         ))
     print('\nBest results per price:')
-    for range in results:
+    for price_range in results:
         print('{}: {:.4f}%'.format(
-            range,
-            max(results[range]) if results[range] else 0
+            price_range,
+            max(results[price_range]) if results[price_range] else 0
         ))
     print('\nWorst results per price:')
-    for range in results:
+    for price_range in results:
         print('{}: {:.4f}%'.format(
-            range,
-            min(results[range]) if results[range] else 0
+            price_range,
+            min(results[price_range]) if results[price_range] else 0
         ))
     print('\nTotal results per price:')
-    for range in results:
+    for price_range in results:
         print('{}: {:.4f}%'.format(
-            range,
-            sum(results[range]) if results[range] else 0
+            price_range,
+            sum(results[price_range]) if results[price_range] else 0
         ))
     print()
     return portfolio_amount
@@ -244,23 +256,23 @@ def run_live(api):
     # Useful in case the script is restarted during market hours.
     bought_today = False
     sold_today = False
+
+    positions = api.list_positions()
+    if not positions:
+        sold_today = True
+
     try:
         # The max stocks_to_hold is 200, so we shouldn't see more than 400
         # orders on a given day.
         orders = api.list_orders(
-            after=api_format(datetime.today() - timedelta(days=1)),
+            after=api_format(datetime.today()),
             limit=400,
             status='all'
         )
         for order in orders:
             if order.side == 'buy':
                 bought_today = True
-                # This handles an edge case where the script is restarted
-                # right before the market closes.
-                sold_today = True
                 break
-            else:
-                sold_today = True
     except:
         # We don't have any orders, so we've obviously not done anything today.
         pass
@@ -269,7 +281,6 @@ def run_live(api):
         # We'll wait until the market's open to do anything.
         clock = api.get_clock()
         if clock.is_open and not bought_today:
-            print('Open and not bought yet')
             if sold_today:
                 # Wait to buy
                 time_until_close = clock.next_close - clock.timestamp
@@ -299,7 +310,7 @@ def run_live(api):
                 if time_after_open.seconds >= 60:
                     print('Liquidating positions.')
                     api.close_all_positions()
-                sold_today = True
+                    sold_today = True
         time.sleep(30)
 
 
